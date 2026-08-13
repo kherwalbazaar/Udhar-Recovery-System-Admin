@@ -58,15 +58,17 @@ export default function MetricCards() {
   useEffect(() => {
     const salesRef = ref(db, "sales");
     const customersRef = ref(db, "customers");
-    const cashbookRef = ref(db, "cashbook");
+    const productsRef = ref(db, "products");
 
     let salesData: RawMap = null;
     let customersData: RawMap = null;
-    let cashbookData: RawMap = null;
+    let productsData: RawMap = null;
 
     const update = () => {
-      if (salesData !== null && customersData !== null && cashbookData !== null) {
-        setMetrics(buildMetrics(salesData, customersData, cashbookData, new Date()));
+      if (salesData !== null && customersData !== null) {
+        setMetrics(
+          buildMetrics(salesData, customersData, null, productsData, new Date())
+        );
       }
     };
     const onError = (err: Error) => setError(err.message);
@@ -87,10 +89,10 @@ export default function MetricCards() {
       },
       onError
     );
-    const unsubCashbook = onValue(
-      cashbookRef,
+    const unsubProducts = onValue(
+      productsRef,
       (snap) => {
-        cashbookData = (snap.val() as RawMap) ?? null;
+        productsData = (snap.val() as RawMap) ?? null;
         update();
       },
       onError
@@ -99,7 +101,7 @@ export default function MetricCards() {
     return () => {
       unsubSales();
       unsubCustomers();
-      unsubCashbook();
+      unsubProducts();
     };
   }, []);
 

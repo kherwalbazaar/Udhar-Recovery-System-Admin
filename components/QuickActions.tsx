@@ -15,6 +15,7 @@ type Action = {
   bg: string;
   hoverBg: string;
   border: string;
+  href?: string;
 };
 
 const actions: Action[] = [
@@ -24,6 +25,7 @@ const actions: Action[] = [
     bg: "bg-emerald-500",
     hoverBg: "hover:bg-emerald-600",
     border: "border-emerald-700",
+    href: "/sales",
   },
   {
     label: "Add Customer",
@@ -31,6 +33,7 @@ const actions: Action[] = [
     bg: "bg-blue-500",
     hoverBg: "hover:bg-blue-600",
     border: "border-blue-700",
+    href: "/customers",
   },
   {
     label: "Cash Book",
@@ -38,6 +41,7 @@ const actions: Action[] = [
     bg: "bg-amber-500",
     hoverBg: "hover:bg-amber-600",
     border: "border-amber-700",
+    href: "/cashbook",
   },
   {
     label: "Khata Book",
@@ -45,6 +49,7 @@ const actions: Action[] = [
     bg: "bg-purple-500",
     hoverBg: "hover:bg-purple-600",
     border: "border-purple-700",
+    href: "/customers",
   },
   {
     label: "Add Payment",
@@ -76,16 +81,28 @@ export default function QuickActions() {
         Quick Actions
       </h3>
       <div className="grid grid-cols-7 gap-3">
-        {actions.map(({ label, icon: Icon, bg, hoverBg, border }) => (
-          <button
-            key={label}
-            type="button"
-            className={`flex items-center justify-center space-x-2 ${bg} ${hoverBg} ${border} text-white font-medium rounded-lg p-2.5 border-b-4 shadow-sm hover:shadow-md transition-all duration-100 active:translate-y-[2px] active:border-b-2`}
-          >
-            <Icon className="w-4 h-4" />
-            <span className="text-xs font-medium">{label}</span>
-          </button>
-        ))}
+        {actions.map(
+          ({ label, icon: Icon, bg, hoverBg, border, href }) =>
+            href ? (
+              <a
+                key={label}
+                href={href}
+                className={`flex items-center justify-center space-x-2 ${bg} ${hoverBg} ${border} text-white font-medium rounded-lg p-2.5 border-b-4 shadow-sm hover:shadow-md transition-all duration-100 active:translate-y-[2px] active:border-b-2`}
+              >
+                <Icon className="w-4 h-4" />
+                <span className="text-xs font-medium">{label}</span>
+              </a>
+            ) : (
+              <button
+                key={label}
+                type="button"
+                className={`flex items-center justify-center space-x-2 ${bg} ${hoverBg} ${border} text-white font-medium rounded-lg p-2.5 border-b-4 shadow-sm hover:shadow-md transition-all duration-100 active:translate-y-[2px] active:border-b-2`}
+              >
+                <Icon className="w-4 h-4" />
+                <span className="text-xs font-medium">{label}</span>
+              </button>
+            )
+        )}
       </div>
     </div>
   );

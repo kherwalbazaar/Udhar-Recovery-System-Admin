@@ -4,56 +4,32 @@ import { useEffect, useState } from "react";
 import { onValue, ref } from "firebase/database";
 import { db } from "@/lib/firebase";
 import {
-  buildRecentSales,
-  type RecentSaleRow,
+  buildProductSalesReport,
+  type ProductSaleRow,
   type RawMap,
 } from "@/lib/sales";
-
-const AVATAR_COLORS = [
-  "bg-blue-500",
-  "bg-orange-400",
-  "bg-emerald-500",
-  "bg-teal-500",
-  "bg-purple-500",
-  "bg-rose-500",
-  "bg-indigo-500",
-];
-
-function colorFor(name: string) {
-  let hash = 0;
-  for (let i = 0; i < name.length; i++) {
-    hash = (hash * 31 + name.charCodeAt(i)) >>> 0;
-  }
-  return AVATAR_COLORS[hash % AVATAR_COLORS.length];
-}
-
-function initialsFor(name: string) {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return "?";
-  const first = parts[0]?.[0] ?? "";
-  const second = parts.length > 1 ? parts[1]?.[0] ?? "" : "";
-  return `${first}${second}`.toUpperCase();
-}
 
 function formatRupee(amount: number) {
   return `₹ ${amount.toLocaleString("en-IN")}`;
 }
 
 export default function RecentSales() {
-  const [rows, setRows] = useState<RecentSaleRow[]>([]);
+  const [rows, setRows] = useState<ProductSaleRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const salesRef = ref(db, "sales");
-    const customersRef = ref(db, "customers");
+    const productsRef = ref(db, "products");
 
     let salesData: RawMap = null;
-    let customersData: RawMap = null;
+    let productsData: RawMap = null;
+    let salesReady = false;
+    let productsReady = false;
 
     const update = () => {
-      if (salesData !== null && customersData !== null) {
-        setRows(buildRecentSales(salesData, customersData, 5));
+      if (salesReady && productsReady) {
+        setRows(buildProductSalesReport(salesData, productsData).slice(0, 5));
         setLoading(false);
       }
     };
@@ -65,17 +41,19 @@ export default function RecentSales() {
 
     const unsubSales = onValue(salesRef, (snap) => {
       salesData = (snap.val() as RawMap) ?? null;
+      salesReady = true;
       update();
     }, onError);
 
-    const unsubCustomers = onValue(customersRef, (snap) => {
-      customersData = (snap.val() as RawMap) ?? null;
+    const unsubProducts = onValue(productsRef, (snap) => {
+      productsData = (snap.val() as RawMap) ?? null;
+      productsReady = true;
       update();
     }, onError);
 
     return () => {
       unsubSales();
-      unsubCustomers();
+      unsubProducts();
     };
   }, []);
 
@@ -83,7 +61,7 @@ export default function RecentSales() {
     <div className="col-span-7 bg-white rounded-xl p-4 border border-slate-200">
       <div className="flex items-center justify-between mb-3">
         <h3 className="text-xs font-semibold text-slate-800">Recent Sales</h3>
-        <a href="#" className="text-xs text-blue-600 font-medium hover:underline">
+        <a href="/sales-report" className="text-xs text-blue-600 font-medium hover:underline">
           View All
         </a>
       </div>
@@ -92,74 +70,53 @@ export default function RecentSales() {
         <table className="w-full text-left border-collapse">
           <thead>
             <tr className="text-[11px] text-slate-400 border-b border-slate-100">
-              <th className="pb-2 font-normal">Bill No.</th>
-              <th className="pb-2 font-normal">Customer</th>
-              <th className="pb-2 font-normal">Amount</th>
-              <th className="pb-2 font-normal">Type</th>
-              <th className="pb-2 font-normal">Status</th>
-              <th className="pb-2 font-normal text-right">Time</th>
+              <th className="pb-2 font-normal">Product Name</th>
+              <th className="pb-2 font-normal text-right">MRP (₹)</th>
+              <th className="pb-2 font-normal text-right">Sale (₹)</th>
+              <th className="pb-2 font-normal text-right">Profit (₹)</th>
             </tr>
           </thead>
           <tbody className="text-xs divide-y divide-slate-100">
             {loading && (
               <tr>
-                <td colSpan={6} className="py-6 text-center text-slate-400">
+                <td colSpan={4} className="py-6 text-center text-slate-400">
                   Loading sales...
                 </td>
               </tr>
             )}
             {error && (
               <tr>
-                <td colSpan={6} className="py-6 text-center text-red-500">
+                <td colSpan={4} className="py-6 text-center text-red-500">
                   Failed to load: {error}
                 </td>
               </tr>
             )}
             {!loading && !error && rows.length === 0 && (
               <tr>
-                <td colSpan={6} className="py-6 text-center text-slate-400">
+                <td colSpan={4} className="py-6 text-center text-slate-400">
                   No sales found.
                 </td>
               </tr>
             )}
             {!loading &&
               !error &&
-              rows.map((row) => (
-                <tr key={row.billNo}>
+              rows.map((row, index) => (
+                <tr key={`${row.product}-${row.date}-${index}`}>
                   <td className="py-2.5 font-medium text-slate-700">
-                    {row.billNo}
+                    {row.product}
                   </td>
-                  <td className="py-2.5">
-                    <div className="flex items-center space-x-2">
-                      <span
-                        className={`w-6 h-6 rounded-full ${colorFor(
-                          row.customer
-                        )} text-white text-[10px] flex items-center justify-center font-semibold`}
-                      >
-                        {initialsFor(row.customer)}
-                      </span>
-                      <span className="font-medium text-slate-700">
-                        {row.customer}
-                      </span>
-                    </div>
+                  <td className="py-2.5 text-right text-slate-500">
+                    {formatRupee(row.mrp)}
                   </td>
-                  <td className="py-2.5 font-semibold text-slate-800">
-                    {formatRupee(row.amount)}
+                  <td className="py-2.5 text-right font-semibold text-slate-800">
+                    {formatRupee(row.sale)}
                   </td>
-                  <td className="py-2.5 text-slate-500">{row.type}</td>
-                  <td className="py-2.5">
-                    <span
-                      className={`px-2 py-0.5 rounded text-[10px] font-medium ${
-                        row.status === "Paid"
-                          ? "bg-emerald-100 text-emerald-600"
-                          : "bg-amber-100 text-amber-600"
-                      }`}
-                    >
-                      {row.status}
-                    </span>
-                  </td>
-                  <td className="py-2.5 text-right text-slate-400">
-                    {row.time}
+                  <td
+                    className={`py-2.5 text-right font-semibold ${
+                      row.profit >= 0 ? "text-emerald-600" : "text-red-500"
+                    }`}
+                  >
+                    {formatRupee(row.profit)}
                   </td>
                 </tr>
               ))}

@@ -43,10 +43,21 @@ export function buildMetrics(
   rawSales: RawMap,
   rawCustomers: RawMap,
   rawCashbook: RawMap,
+  rawProducts: RawMap,
   now: Date
 ): Metrics {
   const todayKey = toDateKey(now);
   const monthPrefix = toMonthPrefix(now);
+
+  const costByProduct = new Map<string, number>();
+  for (const p of toEntries(rawProducts)) {
+    const name = String(p.name ?? "").trim();
+    if (name) costByProduct.set(name, Number(p.cost ?? 0));
+  }
+  const costOf = (product: string, mrp: number) =>
+    costByProduct.get(product) && costByProduct.get(product)! > 0
+      ? costByProduct.get(product)!
+      : mrp / 2;
 
   let given = 0;
   let givenCustomers = 0;
@@ -54,6 +65,16 @@ export function buildMetrics(
   let recoveredPayments = 0;
   let collectionToday = 0;
   let collectionTodayCount = 0;
+
+  const todayCreditKeys = new Set<string>();
+  for (const c of toEntries(rawCustomers)) {
+    for (const t of toEntries((c.transactions as RawMap) ?? null)) {
+      const date = String(t.date ?? "");
+      if (date === todayKey && t.type === "gave") {
+        todayCreditKeys.add(`${date}|${Number(t.amount ?? 0)}`);
+      }
+    }
+  }
 
   for (const c of toEntries(rawCustomers)) {
     let hasGave = false;
@@ -81,15 +102,21 @@ export function buildMetrics(
     if (String(s.date ?? "") === todayKey) {
       saleToday += Number(s.sale ?? 0);
       saleTodayCount += 1;
+      const key = `${todayKey}|${Number(s.sale ?? 0)}`;
+      if (!todayCreditKeys.has(key)) {
+        collectionToday += Number(s.sale ?? 0);
+        collectionTodayCount += 1;
+      }
     }
   }
 
   let profitThisMonth = 0;
-  for (const e of toEntries(rawCashbook)) {
-    const date = String(e.date ?? "");
+  for (const s of toEntries(rawSales)) {
+    const date = String(s.date ?? "");
     if (!date.startsWith(monthPrefix)) continue;
-    const amount = Number(e.amount ?? 0);
-    profitThisMonth += e.type === "out" ? -amount : amount;
+    const mrp = Number(s.mrp ?? 0);
+    const sale = Number(s.sale ?? 0);
+    profitThisMonth += sale - costOf(String(s.productName ?? ""), mrp);
   }
 
   return {

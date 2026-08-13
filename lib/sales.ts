@@ -25,6 +25,16 @@ export type RecentSaleRow = {
   type: "Cash" | "Credit";
   status: "Paid" | "Pending";
   time: string;
+  date: string;
+};
+
+export type ProductSaleRow = {
+  product: string;
+  mrp: number;
+  sale: number;
+  profit: number;
+  date: string;
+  time: string;
 };
 
 function toEntries(raw: RawMap): Record<string, unknown>[] {
@@ -44,6 +54,14 @@ export function buildRecentSales(
   rawSales: RawMap,
   rawCustomers: RawMap,
   limit = 5
+): RecentSaleRow[] {
+  return buildSalesReport(rawSales, rawCustomers, limit);
+}
+
+export function buildSalesReport(
+  rawSales: RawMap,
+  rawCustomers: RawMap,
+  limit?: number
 ): RecentSaleRow[] {
   const sales: SaleRecord[] = toEntries(rawSales).map((s) => ({
     id: String(s.id),
@@ -88,35 +106,68 @@ export function buildRecentSales(
 
   const used = new Set<string>();
   const total = sales.length;
+  const sorted = [...sales].sort((a, b) => b.createdAt - a.createdAt);
+  const limited = limit ? sorted.slice(0, limit) : sorted;
 
-  return sales
-    .sort((a, b) => b.createdAt - a.createdAt)
-    .slice(0, limit)
-    .map((sale, index) => {
-      const key = `${sale.date}|${sale.sale}`;
-      const match = (byKey.get(key) ?? []).find(
-        (t) => t.type === "gave" && !used.has(t.id)
-      );
+  return limited.map((sale, index) => {
+    const key = `${sale.date}|${sale.sale}`;
+    const match = (byKey.get(key) ?? []).find(
+      (t) => t.type === "gave" && !used.has(t.id)
+    );
 
-      let customer = "Walk-in Customer";
-      let type: RecentSaleRow["type"] = "Cash";
-      let status: RecentSaleRow["status"] = "Paid";
+    let customer = "Walk-in Customer";
+    let type: RecentSaleRow["type"] = "Cash";
+    let status: RecentSaleRow["status"] = "Paid";
 
-      if (match) {
-        used.add(match.id);
-        customer = match.customerName;
-        type = "Credit";
-        const balance = customerBalance.get(match.customerId) ?? 0;
-        status = balance > 0 ? "Pending" : "Paid";
-      }
+    if (match) {
+      used.add(match.id);
+      customer = match.customerName;
+      type = "Credit";
+      const balance = customerBalance.get(match.customerId) ?? 0;
+      status = balance > 0 ? "Pending" : "Paid";
+    }
 
+    return {
+      billNo: `BILL-${String(total - index).padStart(4, "0")}`,
+      customer,
+      amount: sale.sale,
+      type,
+      status,
+      time: formatTime(sale.createdAt),
+      date: sale.date,
+    };
+  });
+}
+
+export function buildProductSalesReport(
+  rawSales: RawMap,
+  rawProducts: RawMap
+): ProductSaleRow[] {
+  const costByProduct = new Map<string, number>();
+  for (const p of toEntries(rawProducts)) {
+    const name = String(p.name ?? "").trim();
+    if (name) costByProduct.set(name, Number(p.cost ?? 0));
+  }
+
+  return toEntries(rawSales)
+    .map((s) => {
+      const product = String(s.productName ?? "");
+      const mrp = Number(s.mrp ?? 0);
+      const sale = Number(s.sale ?? 0);
+      const cost =
+        costByProduct.get(product) && costByProduct.get(product)! > 0
+          ? costByProduct.get(product)!
+          : mrp / 2;
+      const profit = sale - cost;
       return {
-        billNo: `BILL-${String(total - index).padStart(4, "0")}`,
-        customer,
-        amount: sale.sale,
-        type,
-        status,
-        time: formatTime(sale.createdAt),
+        product,
+        mrp,
+        sale,
+        profit,
+        date: String(s.date ?? ""),
+        time: formatTime(Number(s.createdAt ?? 0)),
       };
-    });
+    })
+    .filter((r) => r.product)
+    .sort((a, b) => b.date.localeCompare(a.date));
 }

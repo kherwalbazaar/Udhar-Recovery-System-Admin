@@ -37,7 +37,7 @@ export default function TopDueCustomers() {
         <h3 className="text-xs font-semibold text-slate-800">
           Top Due Customers
         </h3>
-        <a href="#" className="text-xs text-blue-600 font-medium hover:underline">
+        <a href="/customers" className="text-xs text-blue-600 font-medium hover:underline">
           View All
         </a>
       </div>

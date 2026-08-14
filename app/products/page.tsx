@@ -3,16 +3,13 @@
 import { useEffect, useState } from "react";
 import {
   Package,
-  Layers,
   ScanLine,
-  CloudUpload,
-  Lightbulb,
   Clock,
-  ArrowLeft,
+  ArrowRight,
   Check,
   AlertCircle,
-  Sparkles,
 } from "lucide-react";
+import SalesSection from "@/components/SalesSection";
 import AppShell from "@/components/AppShell";
 import {
   saveProduct,
@@ -88,24 +85,10 @@ const dressSvg = (
 export default function AddProductPage() {
   const [name, setName] = useState("");
   const [barcode, setBarcode] = useState("");
-  const [category, setCategory] = useState("");
-  const [brand, setBrand] = useState("");
-  const [unit, setUnit] = useState("");
-  const [hsn, setHsn] = useState("");
   const [mrp, setMrp] = useState(0);
   const [cost, setCost] = useState(0);
+  const [costDiscount, setCostDiscount] = useState("");
   const [sale, setSale] = useState(0);
-  const [tax, setTax] = useState(0);
-  const [profitMargin, setProfitMargin] = useState(0);
-  const [discount, setDiscount] = useState(0);
-  const [stock, setStock] = useState(0);
-  const [reorderLevel, setReorderLevel] = useState(0);
-  const [stockLocation, setStockLocation] = useState("");
-  const [supplier, setSupplier] = useState("");
-  const [rack, setRack] = useState("");
-  const [warranty, setWarranty] = useState("");
-  const [active, setActive] = useState(true);
-  const [trackStock, setTrackStock] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -117,27 +100,19 @@ export default function AddProductPage() {
       .catch(() => {});
   }, []);
 
+  const generateBarcode = () => {
+    const timestamp = Date.now().toString().slice(-6);
+    const rand = Math.floor(1000 + Math.random() * 9000);
+    setBarcode(`KB${timestamp}${rand}`);
+  };
+
   const resetForm = () => {
     setName("");
     setBarcode("");
-    setCategory("");
-    setBrand("");
-    setUnit("");
-    setHsn("");
     setMrp(0);
     setCost(0);
+    setCostDiscount("");
     setSale(0);
-    setTax(0);
-    setProfitMargin(0);
-    setDiscount(0);
-    setStock(0);
-    setReorderLevel(0);
-    setStockLocation("");
-    setSupplier("");
-    setRack("");
-    setWarranty("");
-    setActive(true);
-    setTrackStock(true);
     setError(null);
     setSaved(false);
   };
@@ -151,30 +126,24 @@ export default function AddProductPage() {
       setError("MRP must be greater than 0.");
       return;
     }
+    if (cost <= 0) {
+      setError("Cost Price is required.");
+      return;
+    }
     setSubmitting(true);
     setError(null);
     try {
+      const generatedBarcode =
+        barcode.trim() ||
+        `KB${Date.now().toString().slice(-6)}${Math.floor(1000 + Math.random() * 9000)}`;
       const record: ProductRecord = {
         name: name.trim(),
-        barcode: barcode.trim() || undefined,
-        category: category || undefined,
-        brand: brand.trim() || undefined,
-        unit: unit || undefined,
-        hsn: hsn.trim() || undefined,
+        barcode: generatedBarcode,
         mrp: Number(mrp),
         cost: Number(cost) || undefined,
-        sale: Number(sale) > 0 ? Number(sale) : Number(mrp),
-        tax: Number(tax) || undefined,
-        profitMargin: Number(profitMargin) || undefined,
-        discount: Number(discount) || undefined,
-        stock: Number(stock) || undefined,
-        reorderLevel: Number(reorderLevel) || undefined,
-        stockLocation: stockLocation.trim() || undefined,
-        supplier: supplier || undefined,
-        rack: rack.trim() || undefined,
-        warranty: warranty.trim() || undefined,
-        active,
-        trackStock,
+        sale: Number(sale) > 0 ? Number(sale) : undefined,
+        active: true,
+        trackStock: true,
         createdAt: Date.now(),
       };
       await saveProduct(record);
@@ -190,7 +159,6 @@ export default function AddProductPage() {
       ]);
       if (clearAfter) {
         resetForm();
-        setSaved(false);
       }
       setTimeout(() => setSaved(false), 3000);
     } catch (e) {
@@ -205,11 +173,11 @@ export default function AddProductPage() {
       {/* Top Action Navigation */}
       <div className="flex justify-end">
         <a
-          href="/products"
+          href="/products/all"
           className="text-xs text-slate-600 font-medium hover:text-slate-900 flex items-center space-x-1 border border-slate-200 rounded-lg px-3 py-1.5 bg-white shadow-sm"
         >
-          <ArrowLeft className="w-3.5 h-3.5" />
-          <span>Back to Products</span>
+          <span>View All Products</span>
+          <ArrowRight className="w-3.5 h-3.5" />
         </a>
       </div>
 
@@ -237,7 +205,7 @@ export default function AddProductPage() {
               </div>
 
               <div>
-                <label className={labelClass}>Barcode / SKU</label>
+                <label className={labelClass}>Barcode / SKU <span className="text-slate-400 font-normal">(Optional)</span></label>
                 <div className="flex space-x-1">
                   <input
                     type="text"
@@ -257,254 +225,62 @@ export default function AddProductPage() {
               </div>
 
               <div>
-                <label className={labelClass}>Category</label>
-                <select
-                  value={category}
-                  onChange={(e) => setCategory(e.target.value)}
-                  className={inputClass}
-                >
-                  <option value="">Select category</option>
-                  <option>Men&apos;s Wear</option>
-                  <option>Women&apos;s Wear</option>
-                  <option>Kids Wear</option>
-                  <option>Sarees</option>
-                  <option>Innerwear</option>
-                  <option>Accessories</option>
-                  <option>Household</option>
-                  <option>Other</option>
-                </select>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-3 gap-3">
-              <div>
-                <label className={labelClass}>
-                  Brand <span className="text-slate-400 font-normal">(Optional)</span>
-                </label>
-                <input
-                  type="text"
-                  value={brand}
-                  onChange={(e) => setBrand(e.target.value)}
-                  placeholder="Enter brand name"
-                  className={inputClass}
-                />
-              </div>
-
-              <div>
-                <label className={labelClass}>Unit</label>
-                <select
-                  value={unit}
-                  onChange={(e) => setUnit(e.target.value)}
-                  className={inputClass}
-                >
-                  <option value="">Select unit</option>
-                  <option>Pieces</option>
-                  <option>Pack</option>
-                  <option>Pair</option>
-                  <option>Set</option>
-                  <option>Metre</option>
-                </select>
-              </div>
-
-              <div>
-                <label className={labelClass}>
-                  HSN Code <span className="text-slate-400 font-normal">(Optional)</span>
-                </label>
-                <input
-                  type="text"
-                  value={hsn}
-                  onChange={(e) => setHsn(e.target.value)}
-                  placeholder="Enter HSN code"
-                  className={inputClass}
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-3 gap-3">
-              <div>
                 <label className={labelClass}>
                   MRP (₹) <span className="text-red-500">*</span>
                 </label>
                 <input
                   type="number"
-                  value={mrp}
+                  value={mrp || ""}
                   onChange={(e) => setMrp(Number(e.target.value))}
                   className={inputClass}
+                  placeholder="Enter MRP"
                 />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-3 gap-3">
+              <div>
+                <label className={labelClass}>Cost Price (₹) <span className="text-red-500">*</span></label>
+                <div className="flex space-x-1">
+                  <input
+                    type="number"
+                    value={cost || ""}
+                    onChange={(e) => setCost(Number(e.target.value))}
+                    className="w-full text-xs bg-slate-50 border border-slate-200 rounded-l-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    placeholder="Auto-fill by discount"
+                  />
+                  <select
+                    value={costDiscount}
+                    onChange={(e) => {
+                      const pct = Number(e.target.value);
+                      setCostDiscount(e.target.value);
+                      if (e.target.value !== "" && mrp > 0) {
+                        setCost(Math.round((mrp * (100 - pct)) / 100));
+                      }
+                    }}
+                    className="bg-blue-600 hover:bg-blue-700 text-white rounded-r-lg px-2 py-2 text-xs shrink-0 focus:outline-none"
+                  >
+                    <option value="" className="bg-white text-slate-800">%</option>
+                    <option value="30" className="bg-white text-slate-800">30%</option>
+                    <option value="40" className="bg-white text-slate-800">40%</option>
+                    <option value="50" className="bg-white text-slate-800">50%</option>
+                    <option value="60" className="bg-white text-slate-800">60%</option>
+                    <option value="70" className="bg-white text-slate-800">70%</option>
+                    <option value="80" className="bg-white text-slate-800">80%</option>
+                  </select>
+                </div>
               </div>
 
               <div>
-                <label className={labelClass}>Cost Price (₹)</label>
+                <label className={labelClass}>Sale Price (₹) <span className="text-slate-400 font-normal">(Optional)</span></label>
                 <input
                   type="number"
-                  value={cost}
-                  onChange={(e) => setCost(Number(e.target.value))}
-                  className={inputClass}
-                />
-              </div>
-
-              <div>
-                <label className={labelClass}>Sale Price (₹)</label>
-                <input
-                  type="number"
-                  value={sale}
+                  value={sale || ""}
                   onChange={(e) => setSale(Number(e.target.value))}
                   className={inputClass}
+                  placeholder="Enter sale price"
                 />
               </div>
-            </div>
-
-            <div className="grid grid-cols-3 gap-3">
-              <div>
-                <label className={labelClass}>Tax (%)</label>
-                <div className="relative">
-                  <input
-                    type="number"
-                    value={tax}
-                    onChange={(e) => setTax(Number(e.target.value))}
-                    className={inputClass}
-                  />
-                  <span className="absolute inset-y-0 right-0 flex items-center pr-3 text-slate-400 text-xs pointer-events-none">
-                    %
-                  </span>
-                </div>
-              </div>
-
-              <div>
-                <label className={labelClass}>Profit Margin (%)</label>
-                <div className="relative">
-                  <input
-                    type="number"
-                    value={profitMargin}
-                    onChange={(e) => setProfitMargin(Number(e.target.value))}
-                    className={inputClass}
-                  />
-                  <span className="absolute inset-y-0 right-0 flex items-center pr-3 text-slate-400 text-xs pointer-events-none">
-                    %
-                  </span>
-                </div>
-              </div>
-
-              <div>
-                <label className={labelClass}>Discount (%)</label>
-                <div className="relative">
-                  <input
-                    type="number"
-                    value={discount}
-                    onChange={(e) => setDiscount(Number(e.target.value))}
-                    className={inputClass}
-                  />
-                  <span className="absolute inset-y-0 right-0 flex items-center pr-3 text-slate-400 text-xs pointer-events-none">
-                    %
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-3 gap-3">
-              <div>
-                <label className={labelClass}>Initial Stock</label>
-                <input
-                  type="number"
-                  value={stock}
-                  onChange={(e) => setStock(Number(e.target.value))}
-                  className={inputClass}
-                />
-              </div>
-
-              <div>
-                <label className={labelClass}>Reorder Level</label>
-                <input
-                  type="number"
-                  value={reorderLevel}
-                  onChange={(e) => setReorderLevel(Number(e.target.value))}
-                  className={inputClass}
-                />
-              </div>
-
-              <div>
-                <label className={labelClass}>Stock Location</label>
-                <input
-                  type="text"
-                  value={stockLocation}
-                  onChange={(e) => setStockLocation(e.target.value)}
-                  placeholder="Enter stock location"
-                  className={inputClass}
-                />
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-white rounded-xl p-4 border border-slate-200 space-y-4">
-            <div className="flex items-center space-x-2 border-b border-slate-100 pb-2 text-blue-600 font-bold text-xs">
-              <Layers className="w-4 h-4" />
-              <span>More Details</span>
-            </div>
-
-            <div className="grid grid-cols-3 gap-3">
-              <div>
-                <label className={labelClass}>
-                  Supplier <span className="text-slate-400 font-normal">(Optional)</span>
-                </label>
-                <select
-                  value={supplier}
-                  onChange={(e) => setSupplier(e.target.value)}
-                  className={inputClass}
-                >
-                  <option value="">Select supplier</option>
-                  <option>Local Market</option>
-                  <option>Wholesale</option>
-                  <option>Direct Manufacturer</option>
-                </select>
-              </div>
-
-              <div>
-                <label className={labelClass}>
-                  Rack / Shelf <span className="text-slate-400 font-normal">(Optional)</span>
-                </label>
-                <input
-                  type="text"
-                  value={rack}
-                  onChange={(e) => setRack(e.target.value)}
-                  placeholder="Enter rack or shelf name"
-                  className={inputClass}
-                />
-              </div>
-
-              <div>
-                <label className={labelClass}>
-                  Warranty <span className="text-slate-400 font-normal">(Optional)</span>
-                </label>
-                <input
-                  type="text"
-                  value={warranty}
-                  onChange={(e) => setWarranty(e.target.value)}
-                  placeholder="Enter warranty details"
-                  className={inputClass}
-                />
-              </div>
-            </div>
-
-            <div className="flex items-center space-x-6 text-xs text-slate-700 font-medium pt-1">
-              <label className="flex items-center space-x-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={active}
-                  onChange={(e) => setActive(e.target.checked)}
-                  className="rounded text-blue-600 focus:ring-blue-500 w-4 h-4"
-                />
-                <span>This product is active</span>
-              </label>
-
-              <label className="flex items-center space-x-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={trackStock}
-                  onChange={(e) => setTrackStock(e.target.checked)}
-                  className="rounded text-blue-600 focus:ring-blue-500 w-4 h-4"
-                />
-                <span>Track stock for this product</span>
-              </label>
             </div>
           </div>
 
@@ -520,14 +296,6 @@ export default function AddProductPage() {
               <button
                 type="button"
                 onClick={() => doSave(true)}
-                disabled={submitting}
-                className="px-4 py-2 border border-blue-600 text-blue-600 hover:bg-blue-50 text-xs font-semibold rounded-lg disabled:opacity-50"
-              >
-                Save &amp; Add Another
-              </button>
-              <button
-                type="button"
-                onClick={() => doSave(false)}
                 disabled={submitting}
                 className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-lg shadow-sm flex items-center space-x-1.5 disabled:opacity-50"
               >
@@ -557,49 +325,15 @@ export default function AddProductPage() {
           )}
         </div>
 
-        {/* RIGHT: IMAGE UPLOAD & RECENT PRODUCTS */}
+        {/* RIGHT: RECENT PRODUCTS */}
         <div className="col-span-4 space-y-4">
-          <div className="bg-white rounded-xl p-4 border border-slate-200">
-            <div className="flex items-center space-x-2 border-b border-slate-100 pb-2 text-slate-800 font-bold text-xs mb-3">
-              <CloudUpload className="w-4 h-4 text-blue-600" />
-              <span>Product Image</span>
-            </div>
-
-            <div className="border-2 border-dashed border-blue-200 rounded-xl bg-blue-50/30 p-6 text-center space-y-3">
-              <div className="w-10 h-10 rounded-full bg-blue-50 text-blue-500 mx-auto flex items-center justify-center">
-                <CloudUpload className="w-6 h-6" />
-              </div>
-              <p className="text-xs text-slate-600 font-medium">
-                Drag &amp; drop product image here
-              </p>
-              <p className="text-[10px] text-slate-400">or</p>
-              <button
-                type="button"
-                className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold px-4 py-2 rounded-lg"
-              >
-                Choose Image
-              </button>
-              <p className="text-[10px] text-slate-400 mt-2">
-                JPG, PNG or WEBP (Max. 2MB)
-              </p>
-            </div>
-
-            <div className="bg-amber-50/70 border border-amber-100 rounded-xl p-2.5 mt-3 flex items-start space-x-2 text-xs text-amber-700">
-              <Lightbulb className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
-              <span className="text-[11px] leading-snug">
-                Tip: Upload a clear product image for better identification and
-                faster sales.
-              </span>
-            </div>
-          </div>
-
           <div className="bg-white rounded-xl p-4 border border-slate-200">
             <div className="flex items-center justify-between border-b border-slate-100 pb-2 mb-3">
               <div className="flex items-center space-x-1.5 text-xs font-bold text-slate-800">
                 <Clock className="w-4 h-4 text-blue-600" />
                 <span>Recently Added Products</span>
               </div>
-              <a href="/products" className="text-xs text-blue-600 font-medium hover:underline">
+              <a href="/products/all" className="text-xs text-blue-600 font-medium hover:underline">
                 View All
               </a>
             </div>
@@ -612,7 +346,7 @@ export default function AddProductPage() {
               )}
               {recent.map((p) => (
                 <div
-                  key={p.name}
+                  key={`${p.name}-${p.createdAt}`}
                   className="flex items-center justify-between pb-2 border-b border-slate-50 last:border-b-0"
                 >
                   <div className="flex items-center space-x-3">
@@ -636,6 +370,8 @@ export default function AddProductPage() {
               ))}
             </div>
           </div>
+
+          <SalesSection limit={5} />
         </div>
       </div>
     </AppShell>

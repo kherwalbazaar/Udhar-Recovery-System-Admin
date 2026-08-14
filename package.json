@@ -12,10 +12,10 @@
     "chart.js": "^4.5.1",
     "firebase": "^12.17.1",
     "lucide-react": "^0.469.0",
-    "next": "^15.1.6",
-    "react": "^19.0.0",
+    "next": "^16.3.1",
+    "react": "^19.2.8",
     "react-chartjs-2": "^5.2.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.2.8"
   },
   "optionalDependencies": {
     "@next/swc-win32-x64-msvc": "^15.5.23"
@@ -27,5 +27,9 @@
     "@types/react-dom": "^19.0.3",
     "tailwindcss": "^4.0.0",
     "typescript": "^5.7.3"
+  },
+  "allowScripts": {
+    "@firebase/util@1.15.2": true,
+    "protobufjs@7.6.5": true
   }
 }

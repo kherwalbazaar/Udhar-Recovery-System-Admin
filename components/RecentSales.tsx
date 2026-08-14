@@ -72,6 +72,7 @@ export default function RecentSales() {
             <tr className="text-[11px] text-slate-400 border-b border-slate-100">
               <th className="pb-2 font-normal">Product Name</th>
               <th className="pb-2 font-normal text-right">MRP (₹)</th>
+              <th className="pb-2 font-normal text-center">Qty</th>
               <th className="pb-2 font-normal text-right">Sale (₹)</th>
               <th className="pb-2 font-normal text-right">Profit (₹)</th>
             </tr>
@@ -79,21 +80,21 @@ export default function RecentSales() {
           <tbody className="text-xs divide-y divide-slate-100">
             {loading && (
               <tr>
-                <td colSpan={4} className="py-6 text-center text-slate-400">
+                <td colSpan={5} className="py-6 text-center text-slate-400">
                   Loading sales...
                 </td>
               </tr>
             )}
             {error && (
               <tr>
-                <td colSpan={4} className="py-6 text-center text-red-500">
+                <td colSpan={5} className="py-6 text-center text-red-500">
                   Failed to load: {error}
                 </td>
               </tr>
             )}
             {!loading && !error && rows.length === 0 && (
               <tr>
-                <td colSpan={4} className="py-6 text-center text-slate-400">
+                <td colSpan={5} className="py-6 text-center text-slate-400">
                   No sales found.
                 </td>
               </tr>
@@ -107,6 +108,9 @@ export default function RecentSales() {
                   </td>
                   <td className="py-2.5 text-right text-slate-500">
                     {formatRupee(row.mrp)}
+                  </td>
+                  <td className="py-2.5 text-center text-slate-500">
+                    {row.quantity}
                   </td>
                   <td className="py-2.5 text-right font-semibold text-slate-800">
                     {formatRupee(row.sale)}

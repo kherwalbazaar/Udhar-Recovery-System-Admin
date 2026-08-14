@@ -6,6 +6,8 @@ type SaleRecord = {
   sale: number;
   date: string;
   createdAt: number;
+  salePrice?: number;
+  quantity?: number;
 };
 
 type TransactionRecord = {
@@ -32,6 +34,8 @@ export type ProductSaleRow = {
   product: string;
   mrp: number;
   sale: number;
+  salePrice: number;
+  quantity: number;
   profit: number;
   date: string;
   time: string;
@@ -69,6 +73,8 @@ export function buildSalesReport(
     sale: Number(s.sale ?? 0),
     date: String(s.date ?? ""),
     createdAt: Number(s.createdAt ?? 0),
+    salePrice: s.salePrice != null ? Number(s.salePrice) : undefined,
+    quantity: s.quantity != null ? Number(s.quantity) : undefined,
   }));
 
   const transactions: TransactionRecord[] = [];
@@ -154,15 +160,20 @@ export function buildProductSalesReport(
       const product = String(s.productName ?? "");
       const mrp = Number(s.mrp ?? 0);
       const sale = Number(s.sale ?? 0);
-      const cost =
+      const quantity = Number(s.quantity ?? 1);
+      const salePrice =
+        s.salePrice != null ? Number(s.salePrice) : sale / quantity;
+      const unitCost =
         costByProduct.get(product) && costByProduct.get(product)! > 0
           ? costByProduct.get(product)!
           : mrp / 2;
-      const profit = sale - cost;
+      const profit = sale - unitCost * quantity;
       return {
         product,
         mrp,
         sale,
+        salePrice,
+        quantity,
         profit,
         date: String(s.date ?? ""),
         time: formatTime(Number(s.createdAt ?? 0)),

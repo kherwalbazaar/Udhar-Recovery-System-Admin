@@ -116,7 +116,9 @@ export function buildMetrics(
     if (!date.startsWith(monthPrefix)) continue;
     const mrp = Number(s.mrp ?? 0);
     const sale = Number(s.sale ?? 0);
-    profitThisMonth += sale - costOf(String(s.productName ?? ""), mrp);
+    const quantity = Number(s.quantity ?? 1);
+    profitThisMonth +=
+      sale - costOf(String(s.productName ?? ""), mrp) * quantity;
   }
 
   return {

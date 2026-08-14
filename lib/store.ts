@@ -18,6 +18,8 @@ type SaleRecord = {
   productName?: string;
   mrp?: number;
   sale?: number;
+  salePrice?: number;
+  quantity?: number;
   createdAt?: number;
 };
 
@@ -29,28 +31,23 @@ function toDateKey(d: Date): string {
 }
 
 export async function fetchProducts(): Promise<Product[]> {
-  const snap = await get(ref(db, "sales"));
-  const raw = snap.val() as Record<string, SaleRecord> | null;
+  const snap = await get(ref(db, "products"));
+  const raw = snap.val() as
+    | Record<string, { name?: string; mrp?: number; sale?: number }>
+    | null;
   if (!raw) return [];
 
-  const latest = new Map<string, Product & { createdAt: number }>();
-  for (const s of Object.values(raw)) {
-    const name = (s.productName ?? "").trim();
-    if (!name) continue;
-    const createdAt = Number(s.createdAt ?? 0);
-    const existing = latest.get(name);
-    if (!existing || createdAt > existing.createdAt) {
-      latest.set(name, {
-        name,
-        mrp: Number(s.mrp ?? 0),
-        sale: Number(s.sale ?? 0),
-        createdAt,
-      });
-    }
-  }
-
-  return [...latest.values()]
-    .map(({ createdAt: _createdAt, ...p }) => p)
+  return Object.values(raw)
+    .map((p) => {
+      const mrp = Number(p.mrp ?? 0);
+      const sale = Number(p.sale ?? 0);
+      return {
+        name: String(p.name ?? "").trim(),
+        mrp,
+        sale: sale > 0 ? sale : mrp,
+      };
+    })
+    .filter((p) => p.name)
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
@@ -87,10 +84,13 @@ export async function submitSale(params: {
 
   for (const item of items) {
     const saleKey = push(ref(db, "sales")).key;
+    const quantity = Math.max(1, item.qty || 1);
     updates[`sales/${saleKey}`] = {
       productName: item.name,
       mrp: item.mrp,
-      sale: item.sale,
+      salePrice: item.sale,
+      quantity,
+      sale: item.sale * quantity,
       date,
       createdAt,
       ...(note ? { note } : {}),

@@ -1,4 +1,4 @@
-import { Crown, Menu, Search, Bell, ChevronDown } from "lucide-react";
+import { Crown, Search, Bell, ChevronDown } from "lucide-react";
 
 export default function Header({ title = "Dashboard" }: { title?: string }) {
   return (
@@ -18,13 +18,6 @@ export default function Header({ title = "Dashboard" }: { title?: string }) {
       </div>
 
       <div className="flex items-center flex-1 max-w-4xl px-4">
-        <button
-          type="button"
-          className="text-white hover:bg-slate-800 p-1.5 rounded-lg mr-4"
-          aria-label="Menu"
-        >
-          <Menu className="w-5 h-5" />
-        </button>
         <h2 className="text-lg font-semibold mr-8">{title}</h2>
 
         <div className="relative flex-1 max-w-md">

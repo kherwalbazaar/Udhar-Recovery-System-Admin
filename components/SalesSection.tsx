@@ -2,7 +2,12 @@
 
 import { useEffect, useState } from "react";
 import { onValue, ref } from "firebase/database";
-import { ShoppingCart, PlusCircle, BarChart2 } from "lucide-react";
+import {
+  ShoppingCart,
+  PlusCircle,
+  BarChart2,
+  ArrowRight,
+} from "lucide-react";
 import { db } from "@/lib/firebase";
 
 type RawMap = Record<string, Record<string, unknown>> | null;
@@ -80,12 +85,21 @@ export default function SalesSection({ limit = 6 }: { limit?: number }) {
           <ShoppingCart className="w-4 h-4 text-emerald-600" />
           <span>Sale Section</span>
         </div>
-        <a
-          href="/sales"
-          className="text-[11px] text-emerald-600 font-medium hover:underline"
-        >
-          Add Sale
-        </a>
+        <div className="flex items-center space-x-2">
+          <a
+            href="/sales/all"
+            className="text-[11px] text-emerald-600 font-medium hover:underline flex items-center space-x-0.5"
+          >
+            <span>View All</span>
+            <ArrowRight className="w-3 h-3" />
+          </a>
+          <a
+            href="/sales"
+            className="text-[11px] text-emerald-600 font-medium hover:underline"
+          >
+            Add Sale
+          </a>
+        </div>
       </div>
 
       <div className="grid grid-cols-2 gap-2 mb-3">

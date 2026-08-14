@@ -25,6 +25,10 @@ export type KhataMetrics = {
   totalCustomers: number;
   totalGiven: number;
   totalRecovered: number;
+  totalDue: number;
+  dueCustomers: number;
+  giveBack: number;
+  giveBackCustomers: number;
   overdueCount: number;
   paidCount: number;
 };
@@ -42,6 +46,10 @@ export function buildKhata(rawCustomers: RawMap): KhataData {
   const customers: KhataCustomer[] = [];
   let totalGiven = 0;
   let totalRecovered = 0;
+  let totalDue = 0;
+  let dueCustomers = 0;
+  let giveBack = 0;
+  let giveBackCustomers = 0;
   let overdueCount = 0;
   let paidCount = 0;
 
@@ -69,8 +77,15 @@ export function buildKhata(rawCustomers: RawMap): KhataData {
     const balance = gave - got;
     totalGiven += gave;
     totalRecovered += got;
-    if (balance > 0) overdueCount += 1;
-    else paidCount += 1;
+    if (balance > 0) {
+      overdueCount += 1;
+      totalDue += balance;
+      dueCustomers += 1;
+    } else if (balance < 0) {
+      giveBack += -balance;
+      giveBackCustomers += 1;
+      paidCount += 1;
+    } else paidCount += 1;
 
     customers.push({
       id: String(c.id),
@@ -93,6 +108,10 @@ export function buildKhata(rawCustomers: RawMap): KhataData {
       totalCustomers: customers.length,
       totalGiven,
       totalRecovered,
+      totalDue,
+      dueCustomers,
+      giveBack,
+      giveBackCustomers,
       overdueCount,
       paidCount,
     },

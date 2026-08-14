@@ -101,13 +101,8 @@ export default function SalesReportPage() {
   return (
     <AppShell title="Sales Report" active="Sales">
       {/* PAGE TITLE */}
-      <div className="flex items-start justify-between">
-        <div>
-          <h2 className="text-base font-bold text-slate-800">Sales Report</h2>
-          <p className="text-xs text-slate-500">
-            All product sales with MRP, sale price and profit
-          </p>
-        </div>
+      <div className="flex items-center justify-between">
+        <h1 className="text-xl font-bold text-slate-800">Sales Report</h1>
         <div className="flex items-center space-x-2">
           <button
             type="button"
@@ -196,15 +191,23 @@ export default function SalesReportPage() {
         </div>
 
         <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
+          <table className="w-full table-fixed text-left border-collapse">
+            <colgroup>
+              <col className="w-1/6" />
+              <col className="w-1/6" />
+              <col className="w-1/6" />
+              <col className="w-1/6" />
+              <col className="w-1/6" />
+              <col className="w-1/6" />
+            </colgroup>
             <thead>
               <tr className="text-[11px] text-slate-400 border-b border-slate-100">
                 <th className="pb-2 font-normal">Product Name</th>
-                <th className="pb-2 font-normal text-right">MRP (₹)</th>
+                <th className="pb-2 font-normal text-center">MRP (₹)</th>
                 <th className="pb-2 font-normal text-center">Qty</th>
-                <th className="pb-2 font-normal text-right">Sale (₹)</th>
-                <th className="pb-2 font-normal text-right">Profit (₹)</th>
-                <th className="pb-2 font-normal">Date</th>
+                <th className="pb-2 font-normal text-center">Sale (₹)</th>
+                <th className="pb-2 font-normal text-center">Profit (₹)</th>
+                <th className="pb-2 font-normal text-center">Date</th>
               </tr>
             </thead>
             <tbody className="text-xs divide-y divide-slate-100">
@@ -233,26 +236,26 @@ export default function SalesReportPage() {
                 !error &&
                 pageRows.map((row, index) => (
                   <tr key={`${row.product}-${row.date}-${index}`}>
-                    <td className="py-2.5 font-medium text-slate-700">
+                    <td className="py-2.5 px-2 font-medium text-slate-700 truncate">
                       {row.product}
                     </td>
-                    <td className="py-2.5 text-right text-slate-500">
+                    <td className="py-2.5 px-2 text-center text-slate-500">
                       {fmt(row.mrp)}
                     </td>
-                    <td className="py-2.5 text-center text-slate-500">
+                    <td className="py-2.5 px-2 text-center text-slate-500">
                       {row.quantity}
                     </td>
-                    <td className="py-2.5 text-right font-semibold text-slate-800">
+                    <td className="py-2.5 px-2 text-center font-semibold text-slate-800">
                       {fmt(row.sale)}
                     </td>
                     <td
-                      className={`py-2.5 text-right font-semibold ${
+                      className={`py-2.5 px-2 text-center font-semibold ${
                         row.profit >= 0 ? "text-emerald-600" : "text-red-500"
                       }`}
                     >
                       {fmt(row.profit)}
                     </td>
-                    <td className="py-2.5 text-slate-400">
+                    <td className="py-2.5 px-2 text-center text-slate-400">
                       {row.date}{" "}
                       <span className="text-slate-300">{row.time}</span>
                     </td>
@@ -277,12 +280,20 @@ export default function SalesReportPage() {
             >
               &lt;
             </button>
-            <button
-              type="button"
-              className="px-2.5 py-1 bg-blue-600 text-white rounded font-medium"
-            >
-              {page}
-            </button>
+            {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
+              <button
+                key={p}
+                type="button"
+                onClick={() => setPage(p)}
+                className={`px-2.5 py-1 rounded font-medium transition-colors ${
+                  p === page
+                    ? "bg-blue-600 text-white"
+                    : "border border-slate-200 text-slate-600 hover:bg-slate-50"
+                }`}
+              >
+                {p}
+              </button>
+            ))}
             <button
               type="button"
               disabled={page >= totalPages}

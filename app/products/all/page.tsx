@@ -12,6 +12,7 @@ import {
   X,
 } from "lucide-react";
 import AppShell from "@/components/AppShell";
+import ProductImage from "@/components/ProductImage";
 import {
   fetchSoldProducts,
   updateProduct,
@@ -22,7 +23,7 @@ import {
 
 const fmt = (n: number) =>
   n.toLocaleString("en-IN", {
-    minimumFractionDigits: 2,
+    minimumFractionDigits: 0,
     maximumFractionDigits: 2,
   });
 
@@ -205,13 +206,37 @@ export default function AllProductsPage() {
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
             <thead>
-              <tr className="text-[11px] text-slate-400 border-b border-slate-100">
-                <th className="pb-2 font-normal">Product</th>
-                <th className="pb-2 font-normal">Barcode / SKU</th>
-                <th className="pb-2 font-normal">MRP (₹)</th>
-                <th className="pb-2 font-normal">Cost (₹)</th>
-                <th className="pb-2 font-normal">Sale (₹)</th>
-                <th className="pb-2 font-normal text-right">Action</th>
+              <tr className="text-[11px]">
+                <th className="pb-2 pr-2">
+                  <span className="inline-block w-full text-left bg-[#0b1e59] text-white font-semibold rounded-md px-3 py-1.5">
+                    Product
+                  </span>
+                </th>
+                <th className="pb-2 pr-2">
+                  <span className="inline-block w-full text-left bg-[#0b1e59] text-white font-semibold rounded-md px-3 py-1.5">
+                    Barcode / SKU
+                  </span>
+                </th>
+                <th className="pb-2 pr-2">
+                  <span className="inline-block w-full text-left bg-[#0b1e59] text-white font-semibold rounded-md px-3 py-1.5">
+                    MRP (₹)
+                  </span>
+                </th>
+                <th className="pb-2 pr-2">
+                  <span className="inline-block w-full text-left bg-[#0b1e59] text-white font-semibold rounded-md px-3 py-1.5">
+                    Cost (₹)
+                  </span>
+                </th>
+                <th className="pb-2 pr-2">
+                  <span className="inline-block w-full text-left bg-[#0b1e59] text-white font-semibold rounded-md px-3 py-1.5">
+                    Sale (₹)
+                  </span>
+                </th>
+                <th className="pb-2">
+                  <span className="inline-block w-full text-right bg-[#0b1e59] text-white font-semibold rounded-md px-3 py-1.5">
+                    Action
+                  </span>
+                </th>
               </tr>
             </thead>
             <tbody className="text-xs divide-y divide-slate-100">
@@ -238,7 +263,14 @@ export default function AllProductsPage() {
               )}
               {filtered.map((p) => (
                 <tr key={p.name}>
-                  <td className="py-2 font-medium text-slate-800">{p.name}</td>
+                  <td className="py-2">
+                    <div className="flex items-center space-x-2">
+                      <ProductImage name={p.name} />
+                      <span className="font-medium text-slate-800">
+                        {p.name}
+                      </span>
+                    </div>
+                  </td>
                   <td className="py-2 text-slate-500">{p.barcode ?? "—"}</td>
                   <td className="py-2 text-slate-700">{fmt(p.mrp)}</td>
                   <td className="py-2 text-slate-700">

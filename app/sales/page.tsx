@@ -3,19 +3,18 @@
 import { useEffect, useState } from "react";
 import {
   Search,
-  ScanLine,
   ShoppingCart,
   UserPlus,
   Trash2,
-  PlusCircle,
   Info,
   Wallet,
-  UserCheck,
   Check,
   Minus,
   Plus,
   X,
   AlertCircle,
+  ChevronDown,
+  ArrowRight,
 } from "lucide-react";
 import AppShell from "@/components/AppShell";
 import {
@@ -25,6 +24,7 @@ import {
   type Product,
   type CustomerSummary,
 } from "@/lib/store";
+import { saveProduct } from "@/lib/products";
 
 type CartItem = {
   name: string;
@@ -52,7 +52,7 @@ function chipColor(name: string) {
 
 const fmt = (n: number) =>
   n.toLocaleString("en-IN", {
-    minimumFractionDigits: 2,
+    minimumFractionDigits: 0,
     maximumFractionDigits: 2,
   });
 
@@ -62,18 +62,22 @@ export default function AddSalePage() {
   const [customers, setCustomers] = useState<CustomerSummary[]>([]);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [search, setSearch] = useState("");
-  const [customerSearch, setCustomerSearch] = useState("");
+  const [customerListOpen, setCustomerListOpen] = useState(false);
   const [selectedCustomer, setSelectedCustomer] =
     useState<CustomerSummary | null>(null);
   const [priceInputs, setPriceInputs] = useState<Record<string, number>>({});
-  const [saleType, setSaleType] = useState<"cash" | "credit">("cash");
-  const [note, setNote] = useState("");
   const [discount, setDiscount] = useState(0);
   const [received, setReceived] = useState(0);
   const [receivedTouched, setReceivedTouched] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [quickAddOpen, setQuickAddOpen] = useState(false);
+  const [qaName, setQaName] = useState("");
+  const [qaMrp, setQaMrp] = useState("");
+  const [qaSale, setQaSale] = useState("");
+  const [qaError, setQaError] = useState<string | null>(null);
+  const [qaSaving, setQaSaving] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -128,11 +132,81 @@ export default function AddSalePage() {
     });
   };
 
+  const handleQuickAdd = async () => {
+    const name = qaName.trim();
+    const mrp = Number(qaMrp);
+    const sale = Number(qaSale);
+    if (!name) {
+      setQaError("Product Name is required.");
+      return;
+    }
+    if (!(mrp > 0)) {
+      setQaError("MRP must be greater than 0.");
+      return;
+    }
+    if (!(sale > 0)) {
+      setQaError("Sale Price must be greater than 0.");
+      return;
+    }
+    setQaSaving(true);
+    setQaError(null);
+    try {
+      await saveProduct({
+        name,
+        mrp,
+        sale,
+        active: true,
+        trackStock: true,
+        createdAt: Date.now(),
+      });
+      addToCart({ name, mrp, sale });
+      setProducts((prev) => [
+        { name, mrp, sale, createdAt: Date.now() },
+        ...prev.filter((x) => x.name !== name),
+      ]);
+      setSearch("");
+      setQuickAddOpen(false);
+      setQaName("");
+      setQaMrp("");
+      setQaSale("");
+    } catch (e) {
+      setQaError(e instanceof Error ? e.message : "Failed to save product.");
+    } finally {
+      setQaSaving(false);
+    }
+  };
+
   const updateQty = (name: string, delta: number) => {
     setCart((prev) =>
       prev
         .map((i) => (i.name === name ? { ...i, qty: i.qty + delta } : i))
         .filter((i) => i.qty > 0)
+    );
+  };
+
+  const setItemSale = (name: string, value: string) => {
+    setCart((prev) =>
+      prev.map((i) =>
+        i.name === name ? { ...i, sale: Math.max(0, Number(value) || 0) } : i
+      )
+    );
+  };
+
+  const stepSale = (name: string, delta: number) => {
+    setCart((prev) =>
+      prev.map((i) =>
+        i.name === name ? { ...i, sale: Math.max(0, i.sale + delta) } : i
+      )
+    );
+  };
+
+  const setItemQty = (name: string, value: string) => {
+    setCart((prev) =>
+      prev.map((i) =>
+        i.name === name
+          ? { ...i, qty: Math.max(1, Math.floor(Number(value) || 1)) }
+          : i
+      )
     );
   };
 
@@ -144,10 +218,6 @@ export default function AddSalePage() {
 
   const handleSubmit = async () => {
     if (cart.length === 0) return;
-    if (saleType === "credit" && !selectedCustomer) {
-      setError("Please select a customer for a Credit sale.");
-      return;
-    }
     setSubmitting(true);
     setError(null);
     try {
@@ -158,16 +228,13 @@ export default function AddSalePage() {
           sale: i.sale,
           qty: i.qty,
         })),
-        saleType,
+        saleType: "cash",
         customer: selectedCustomer,
-        note: note.trim() || undefined,
       });
       setSubmitted(true);
       setCart([]);
       setDiscount(0);
-      setNote("");
       setSelectedCustomer(null);
-      setCustomerSearch("");
       setReceivedTouched(false);
       setTimeout(() => setSubmitted(false), 3000);
     } catch (e) {
@@ -183,136 +250,31 @@ export default function AddSalePage() {
 
   const visibleProducts = search.trim()
     ? filteredProducts
-    : filteredProducts;
-
-  const filteredCustomers = customers.filter((c) => {
-    const q = customerSearch.trim().toLowerCase();
-    return (
-      !q ||
-      c.name.toLowerCase().includes(q) ||
-      c.phone.toLowerCase().includes(q)
-    );
-  });
+    : filteredProducts.slice(0, 10);
 
   const chip = (name: string) => name.charAt(0).toUpperCase();
 
   return (
-    <AppShell title="Add Sale" active="Sales">
+    <AppShell title="" active="Sales">
+      <div className="flex items-center justify-between">
+        <h1 className="text-xl font-bold text-slate-800">Sales</h1>
+
+        <a
+          href="/sales-report"
+          className="text-xs text-slate-600 font-medium hover:text-slate-900 flex items-center space-x-1 border border-slate-200 rounded-lg px-3 py-1.5 bg-white shadow-sm"
+        >
+          <span>Sale Report</span>
+          <ArrowRight className="w-3.5 h-3.5" />
+        </a>
+      </div>
+
       <div className="grid grid-cols-12 gap-4">
         {/* LEFT SECTION: FORM AND PRODUCT SELECTION */}
-        <div className="col-span-5 space-y-4">
-          {/* 1. Select Product & Add to Cart */}
-          <div className="bg-white rounded-xl p-4 border border-slate-200">
-            <h3 className="text-xs font-bold text-slate-800 mb-3">
-              1. Select Product &amp; Add to Cart
-            </h3>
-
-            <div className="flex items-center space-x-2 mb-4">
-              <div className="relative flex-1">
-                <span className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-slate-400">
-                  <Search className="w-3.5 h-3.5" />
-                </span>
-                <input
-                  type="text"
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Search product by name / barcode"
-                  className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg pl-8 pr-3 py-2 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                />
-              </div>
-
-              <button
-                type="button"
-                className="flex items-center space-x-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-700 hover:bg-slate-100"
-              >
-                <ScanLine className="w-3.5 h-3.5" />
-                <span>Scan Barcode</span>
-              </button>
-            </div>
-
-            {!productsLoading && !error && !search.trim() && (
-              <p className="text-[10px] text-slate-400 mb-2">
-                Showing all {visibleProducts.length} products — scroll the list
-                below to browse.
-              </p>
-            )}
-
-            <div className="max-h-56 overflow-y-auto overflow-x-auto pr-1 scroll-smooth">
-              <table className="w-full text-left border-collapse">
-                <thead className="sticky top-0 bg-white z-10">
-                  <tr className="text-[11px] text-slate-400 border-b border-slate-100">
-                    <th className="pb-2 font-normal">Product Name</th>
-                    <th className="pb-2 font-normal">MRP (₹)</th>
-                    <th className="pb-2 font-normal">Sale Price (₹)</th>
-                    <th className="pb-2 font-normal text-right">Action</th>
-                  </tr>
-                </thead>
-                <tbody className="text-xs divide-y divide-slate-100">
-                  {productsLoading && (
-                    <tr>
-                      <td colSpan={4} className="py-6 text-center text-slate-400">
-                        Loading products...
-                      </td>
-                    </tr>
-                  )}
-                  {!productsLoading && error && (
-                    <tr>
-                      <td colSpan={4} className="py-6 text-center text-red-500">
-                        {error}
-                      </td>
-                    </tr>
-                  )}
-                  {!productsLoading &&
-                    !error &&
-                    filteredProducts.length === 0 && (
-                      <tr>
-                        <td colSpan={4} className="py-6 text-center text-slate-400">
-                          No products found.
-                        </td>
-                      </tr>
-                    )}
-                  {!productsLoading &&
-                    !error &&
-                    visibleProducts.map((p) => (
-                      <tr key={p.name}>
-                        <td className="py-1.5 font-medium text-slate-800">
-                          {p.name}
-                        </td>
-                        <td className="py-1.5 text-slate-600">{fmt(p.mrp)}</td>
-                        <td className="py-1.5">
-                          <input
-                            type="number"
-                            value={priceInputs[p.name] ?? p.sale}
-                            onChange={(e) =>
-                              setPriceInputs((prev) => ({
-                                ...prev,
-                                [p.name]: Number(e.target.value),
-                              }))
-                            }
-                            className="w-16 px-1.5 py-0.5 border border-slate-200 rounded text-xs focus:outline-none focus:border-blue-500"
-                          />
-                        </td>
-                        <td className="py-1.5 text-right">
-                          <button
-                            type="button"
-                            onClick={() => addToCart(p)}
-                            className="bg-blue-600 text-white px-3 py-1 rounded-md text-xs font-medium flex items-center space-x-1 ml-auto hover:bg-blue-700"
-                          >
-                            <ShoppingCart className="w-3 h-3" />
-                            <span>Add</span>
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          {/* 2. Customer Section */}
+        <div className="col-span-5 space-y-2">
+          {/* 1. Customer Section */}
           <div className="bg-white rounded-xl p-4 border border-slate-200">
             <h3 className="text-xs font-bold text-slate-800 mb-2">
-              2. Customer{" "}
+              1. Customer{" "}
               <span className="font-normal text-slate-400">
                 (Required for Credit Sale)
               </span>
@@ -344,112 +306,169 @@ export default function AddSalePage() {
               </div>
             ) : (
               <>
-                <div className="flex items-center space-x-2 mb-2">
-                  <input
-                    type="text"
-                    value={customerSearch}
-                    onChange={(e) => setCustomerSearch(e.target.value)}
-                    placeholder="Search customer by name or mobile number"
-                    className="flex-1 text-xs bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                <button
+                  type="button"
+                  onClick={() => setCustomerListOpen((o) => !o)}
+                  className="w-full flex items-center justify-between text-xs bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 mb-2 text-slate-700 hover:bg-slate-100"
+                >
+                  <span>Select customer</span>
+                  <ChevronDown
+                    className={`w-3.5 h-3.5 transition-transform ${
+                      customerListOpen ? "rotate-180" : ""
+                    }`}
                   />
-                  <button
-                    type="button"
-                    className="text-xs bg-blue-50 text-blue-600 font-medium px-3 py-2 rounded-lg border border-blue-100 flex items-center space-x-1 hover:bg-blue-100"
-                  >
-                    <UserPlus className="w-3.5 h-3.5" />
-                    <span>+ Add New Customer</span>
-                  </button>
-                </div>
+                </button>
 
-                {customerSearch && filteredCustomers.length > 0 && (
-                  <div className="border border-slate-200 rounded-lg divide-y divide-slate-100 max-h-48 overflow-y-auto">
-                    {filteredCustomers.slice(0, 5).map((c) => (
+                {customerListOpen && customers.length > 0 && (
+                  <div className="border border-slate-200 rounded-lg divide-y divide-slate-100 max-h-48 overflow-y-auto mb-2">
+                    {customers.map((c) => (
                       <button
                         key={c.id}
                         type="button"
-                        onClick={() => setSelectedCustomer(c)}
+                        onClick={() => {
+                          setSelectedCustomer(c);
+                          setCustomerListOpen(false);
+                        }}
                         className="w-full flex items-center justify-between px-3 py-2 hover:bg-slate-50 text-left"
                       >
                         <div className="flex items-center space-x-2">
-                          <span className="w-6 h-6 rounded-full bg-slate-300 text-slate-700 text-[10px] flex items-center justify-center font-semibold">
+                          <span className="w-6 h-6 rounded-full bg-red-500 text-white text-[10px] flex items-center justify-center font-semibold">
                             {c.name.charAt(0).toUpperCase()}
                           </span>
                           <span className="text-xs font-medium text-slate-700">
                             {c.name}
                           </span>
                         </div>
-                        <span className="text-[10px] text-slate-400">
-                          {c.phone}
+                        <span className="text-[10px] font-semibold text-red-600">
+                          ₹{Math.round(c.totalAmount)}
                         </span>
                       </button>
                     ))}
                   </div>
                 )}
-
-                {customerSearch && filteredCustomers.length === 0 && (
-                  <p className="text-[11px] text-slate-400">
-                    No customers found.
-                  </p>
-                )}
               </>
             )}
           </div>
 
-          {/* 3. Sale Type */}
+          {/* 2. Select Product & Add to Cart */}
           <div className="bg-white rounded-xl p-4 border border-slate-200">
-            <h3 className="text-xs font-bold text-slate-800 mb-3">3. Sale Type</h3>
-            <div className="flex items-center space-x-6 text-xs">
-              <label className="flex items-center space-x-2 cursor-pointer font-medium text-slate-700">
-                <input
-                  type="radio"
-                  name="saleType"
-                  checked={saleType === "cash"}
-                  onChange={() => setSaleType("cash")}
-                  className="text-emerald-600 focus:ring-emerald-500"
-                />
-                <span>Cash / UPI (Paid Now)</span>
-              </label>
-              <label
-                className={`flex items-center space-x-2 cursor-pointer ${
-                  saleType === "credit"
-                    ? "font-medium text-slate-700"
-                    : "text-slate-500"
-                }`}
-              >
-                <input
-                  type="radio"
-                  name="saleType"
-                  checked={saleType === "credit"}
-                  onChange={() => setSaleType("credit")}
-                  className="text-emerald-600 focus:ring-emerald-500"
-                />
-                <span>Credit (Add to Khata)</span>
-              </label>
-            </div>
-          </div>
-
-          {/* 4. Payment Note */}
-          <div className="bg-white rounded-xl p-4 border border-slate-200">
-            <h3 className="text-xs font-bold text-slate-800 mb-2">
-              4. Payment Note{" "}
-              <span className="font-normal text-slate-400">(Optional)</span>
+            <h3 className="text-xs font-bold text-slate-800 mb-3">
+              2. Select Product &amp; Add to Cart
             </h3>
-            <textarea
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-              placeholder="Add any note for this sale..."
-              rows={2}
-              className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg p-2.5 focus:outline-none focus:ring-1 focus:ring-blue-500 resize-none"
-            />
-          </div>
 
-          {/* Tip Banner */}
-          <div className="bg-blue-50/70 border border-blue-100 rounded-xl p-2.5 flex items-center space-x-2 text-xs text-blue-600">
-            <Info className="w-4 h-4 shrink-0" />
-            <span>
-              Tip: Add multiple products to cart, apply discount, then choose
-              payment type and submit. Sales are saved to Firebase.
-            </span>
+            <div className="flex items-center space-x-2 mb-4">
+              <div className="relative flex-1">
+                <span className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-slate-400">
+                  <Search className="w-3.5 h-3.5" />
+                </span>
+                <div className="rounded-lg p-0.5 animate-multicolor">
+                  <input
+                    type="text"
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    placeholder="Search product by name / barcode"
+                    className="w-full text-xs bg-white rounded-[7px] pl-9 pr-3 py-2.5 focus:outline-none animate-search-blink"
+                  />
+                </div>
+
+                {search.trim() && filteredProducts.length > 0 && (
+                  <div className="absolute left-0 right-0 top-full mt-1 z-30 bg-white border border-slate-200 rounded-lg shadow-lg divide-y divide-slate-100 max-h-48 overflow-y-auto">
+                    {filteredProducts.slice(0, 8).map((p) => (
+                      <button
+                        key={p.name}
+                        type="button"
+                        onClick={() => setSearch(p.name)}
+                        className="w-full flex items-center justify-between px-3 py-2 hover:bg-blue-50 text-left"
+                      >
+                        <span className="text-xs font-medium text-slate-700">
+                          {p.name}
+                        </span>
+                        <span className="text-[10px] text-slate-400">
+                          {fmt(p.sale)}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="max-h-[calc(100vh-260px)] overflow-y-auto overflow-x-auto pr-1 scroll-smooth">
+              <table className="w-full text-left border-collapse table-fixed">
+                <thead className="sticky top-0 bg-white z-10">
+                  <tr className="text-[11px] text-slate-400 border-b border-slate-100">
+                    <th className="pb-2 px-2 font-normal w-[50%]">Product Name</th>
+                    <th className="pb-2 px-2 font-normal w-[25%] text-right">MRP (₹)</th>
+                    <th className="pb-2 px-2 font-normal text-right w-[25%]">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="text-xs divide-y divide-slate-100">
+                  {productsLoading && (
+                    <tr>
+                      <td colSpan={4} className="py-6 text-center text-slate-400">
+                        Loading products...
+                      </td>
+                    </tr>
+                  )}
+                  {!productsLoading && error && (
+                    <tr>
+                      <td colSpan={4} className="py-6 text-center text-red-500">
+                        {error}
+                      </td>
+                    </tr>
+                  )}
+                  {!productsLoading &&
+                    !error &&
+                    filteredProducts.length === 0 && (
+                      <tr>
+                        <td colSpan={4} className="py-6 text-center">
+                          <p className="text-slate-400 mb-3">
+                            {search.trim()
+                              ? `No products found for "${search.trim()}".`
+                              : "No products found."}
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setQaName(search.trim());
+                              setQaMrp("");
+                              setQaSale("");
+                              setQaError(null);
+                              setQuickAddOpen(true);
+                            }}
+                            className="inline-flex items-center space-x-1.5 bg-blue-600 hover:bg-blue-700 text-white px-4 py-1.5 rounded-md text-xs font-medium"
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                            <span>New Add</span>
+                          </button>
+                        </td>
+                      </tr>
+                    )}
+                  {!productsLoading &&
+                    !error &&
+                    visibleProducts.map((p) => (
+                      <tr key={p.name}>
+                        <td className="py-2 px-2 font-medium text-slate-800 truncate">
+                          {p.name}
+                        </td>
+                        <td className="py-2 px-2 text-slate-600 text-right">
+                          {fmt(p.mrp)}
+                        </td>
+                        <td className="py-2 px-2 text-right">
+                          <button
+                            type="button"
+                            onClick={() => addToCart(p)}
+                            aria-label={`Add ${p.name} to cart`}
+                            className="w-5 h-5 rounded-full bg-blue-600 hover:bg-blue-700 text-white flex items-center justify-center ml-auto"
+                          >
+                            <Plus className="w-3 h-3" />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
 
@@ -476,13 +495,13 @@ export default function AddSalePage() {
 
             <table className="w-full text-left my-2 border-collapse">
               <thead>
-                <tr className="text-[10px] text-slate-400 border-b border-slate-100">
-                  <th className="py-2 font-normal">Product</th>
-                  <th className="py-2 font-normal text-right">MRP (₹)</th>
-                  <th className="py-2 font-normal text-right">Sale (₹)</th>
-                  <th className="py-2 font-normal text-center">Qty</th>
-                  <th className="py-2 font-normal text-right">Total (₹)</th>
-                  <th className="py-2 font-normal"></th>
+                <tr className="bg-pink-100 text-pink-800 text-[10px] font-semibold">
+                  <th className="py-2 pl-2 pr-2 text-left rounded-l-lg">Product</th>
+                  <th className="py-2 px-2 text-right">MRP (₹)</th>
+                  <th className="py-2 px-2 text-right">Sale (₹)</th>
+                  <th className="py-2 px-2 text-center">Qty</th>
+                  <th className="py-2 px-2 text-right">Total (₹)</th>
+                  <th className="py-2 pl-2 pr-2 w-6 rounded-r-lg"></th>
                 </tr>
               </thead>
               <tbody className="text-xs divide-y divide-slate-100">
@@ -495,7 +514,7 @@ export default function AddSalePage() {
                 )}
                 {cart.map((item) => (
                   <tr key={item.name}>
-                    <td className="py-2.5">
+                    <td className="py-2.5 pl-2 pr-2">
                       <div className="flex items-center space-x-2">
                         <span
                           className={`w-6 h-6 rounded ${item.chipBg} text-[10px] flex items-center justify-center font-bold`}
@@ -507,39 +526,67 @@ export default function AddSalePage() {
                         </span>
                       </div>
                     </td>
-                    <td className="py-2.5 text-right text-slate-400">
+                    <td className="py-2.5 px-2 text-right text-slate-400">
                       {fmt(item.mrp)}
                     </td>
-                    <td className="py-2.5 text-right font-medium text-slate-700">
-                      {fmt(item.sale)}
+                    <td className="py-2.5 px-2 text-right">
+                      <div className="inline-flex items-center border border-slate-200 rounded">
+                        <button
+                          type="button"
+                          onClick={() => stepSale(item.name, -10)}
+                          className="px-1.5 text-slate-400 hover:bg-slate-200 transition-colors self-stretch flex items-center"
+                          aria-label="Decrease price by 10"
+                        >
+                          <Minus className="w-3 h-3" />
+                        </button>
+                        <input
+                          type="number"
+                          value={item.sale}
+                          onChange={(e) =>
+                            setItemSale(item.name, e.target.value)
+                          }
+                          className="w-14 px-1 py-0.5 text-right text-xs font-medium text-slate-700 focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => stepSale(item.name, 10)}
+                          className="px-1.5 text-slate-400 hover:bg-slate-200 transition-colors self-stretch flex items-center"
+                          aria-label="Increase price by 10"
+                        >
+                          <Plus className="w-3 h-3" />
+                        </button>
+                      </div>
                     </td>
-                    <td className="py-2.5 text-center">
+                    <td className="py-2.5 px-2 text-center">
                       <div className="inline-flex items-center border border-slate-200 rounded">
                         <button
                           type="button"
                           onClick={() => updateQty(item.name, -1)}
-                          className="px-1.5 text-slate-400 hover:bg-slate-100"
+                          className="px-1.5 text-slate-400 hover:bg-slate-200 transition-colors self-stretch flex items-center"
                           aria-label="Decrease quantity"
                         >
                           <Minus className="w-3 h-3" />
                         </button>
-                        <span className="px-2 text-xs font-medium">
-                          {item.qty}
-                        </span>
+                        <input
+                          type="number"
+                          value={item.qty}
+                          onChange={(e) => setItemQty(item.name, e.target.value)}
+                          className="w-9 px-1 py-0.5 text-center text-xs font-medium focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                        />
                         <button
                           type="button"
                           onClick={() => updateQty(item.name, 1)}
-                          className="px-1.5 text-slate-400 hover:bg-slate-100"
+                          className="px-1.5 text-slate-400 hover:bg-slate-200 transition-colors self-stretch flex items-center"
                           aria-label="Increase quantity"
                         >
                           <Plus className="w-3 h-3" />
                         </button>
                       </div>
                     </td>
-                    <td className="py-2.5 text-right font-semibold text-slate-800">
+                    <td className="py-2.5 px-2 text-right font-semibold text-slate-800">
                       {fmt(item.sale * item.qty)}
                     </td>
-                    <td className="py-2.5 text-right">
+                    <td className="py-2.5 pl-2 pr-2 text-right">
                       <button
                         type="button"
                         onClick={() => removeItem(item.name)}
@@ -554,15 +601,7 @@ export default function AddSalePage() {
               </tbody>
             </table>
 
-            <div className="text-center py-2 border-t border-slate-100">
-              <button
-                type="button"
-                className="text-xs text-blue-600 font-medium hover:underline inline-flex items-center space-x-1"
-              >
-                <PlusCircle className="w-3.5 h-3.5" />
-                <span>Add More Items</span>
-              </button>
-            </div>
+
 
             <div className="space-y-2 pt-3 border-t border-slate-100 text-xs">
               <div className="flex justify-between text-slate-600 font-medium">
@@ -577,105 +616,108 @@ export default function AddSalePage() {
                   <span>Bill Discount</span>
                   <Info className="w-3 h-3 text-slate-400" />
                 </div>
-                <div className="flex items-center border border-slate-200 rounded bg-slate-50 overflow-hidden">
-                  <span className="px-2 text-slate-400 bg-slate-100 border-r border-slate-200">
-                    ₹
-                  </span>
+                <div className="inline-flex items-center border border-slate-200 rounded bg-white">
+                  <button
+                    type="button"
+                    onClick={() => setDiscount(Math.max(0, discount - 10))}
+                    className="px-1.5 text-slate-400 hover:bg-slate-200 transition-colors self-stretch flex items-center"
+                    aria-label="Decrease discount by 10"
+                  >
+                    <Minus className="w-3 h-3" />
+                  </button>
                   <input
                     type="number"
                     value={discount}
                     onChange={(e) =>
                       setDiscount(Math.max(0, Number(e.target.value)))
                     }
-                    className="w-16 px-2 py-0.5 text-right text-xs bg-transparent focus:outline-none font-medium"
+                    className="w-14 py-0.5 text-right text-xs font-medium text-slate-700 focus:outline-none"
                   />
+                  <button
+                    type="button"
+                    onClick={() => setDiscount(discount + 10)}
+                    className="px-1.5 text-slate-400 hover:bg-slate-200 transition-colors self-stretch flex items-center"
+                    aria-label="Increase discount by 10"
+                  >
+                    <Plus className="w-3 h-3" />
+                  </button>
                 </div>
               </div>
 
-              <div className="flex justify-between items-center pt-2 border-t border-slate-100">
-                <span className="text-sm font-bold text-emerald-600">
-                  Final Payable
-                </span>
-                <span className="text-base font-bold text-emerald-600">
-                  ₹{fmt(payable)}
-                </span>
+              <div className="rounded-lg p-0.5 animate-multicolor mt-2">
+                <div className="bg-white rounded-[7px] px-3 py-2.5 animate-search-blink flex justify-between items-center">
+                  <span className="text-base font-bold text-emerald-600">
+                    Final Payable
+                  </span>
+                  <span className="text-2xl font-extrabold text-emerald-600">
+                    ₹{fmt(payable)}
+                  </span>
+                </div>
               </div>
             </div>
           </div>
 
           {/* Payment Details */}
+          {cart.length > 0 && (
           <div className="bg-white rounded-xl p-4 border border-slate-200 space-y-3">
             <h3 className="text-xs font-bold text-slate-800">Payment Details</h3>
 
-            <div>
-              <p className="text-[11px] text-slate-500 font-medium mb-1.5">
-                Payment Type
-              </p>
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => setSaleType("cash")}
-                  className={`flex items-center justify-center space-x-1.5 rounded-lg py-2 text-xs font-semibold ${
-                    saleType === "cash"
-                      ? "border-2 border-emerald-500 bg-emerald-50/50 text-emerald-600"
-                      : "border border-slate-200 text-slate-600 font-medium hover:bg-slate-50"
-                  }`}
-                >
-                  <Wallet className="w-4 h-4" />
-                  <span>Cash / UPI</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setSaleType("credit")}
-                  className={`flex items-center justify-center space-x-1.5 rounded-lg py-2 text-xs font-semibold ${
-                    saleType === "credit"
-                      ? "border-2 border-emerald-500 bg-emerald-50/50 text-emerald-600"
-                      : "border border-slate-200 text-slate-600 font-medium hover:bg-slate-50"
-                  }`}
-                >
-                  <UserCheck className="w-4 h-4 text-slate-400" />
-                  <span>
-                    Credit{" "}
-                    <span className="font-normal text-[10px] text-slate-400">
-                      (Add to Khata)
-                    </span>
-                  </span>
-                </button>
-              </div>
-            </div>
-
-            {saleType === "cash" && (
-              <>
-                <div>
-                  <p className="text-[11px] text-slate-500 font-medium mb-1">
-                    Amount Received
-                  </p>
-                  <div className="relative">
-                    <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400 text-xs">
-                      ₹
-                    </span>
-                    <input
-                      type="number"
-                      value={received}
-                      onChange={(e) => {
-                        setReceived(Number(e.target.value));
+            <div className="grid grid-cols-2 gap-3">
+              <div className="flex flex-col">
+                <p className="text-[11px] text-slate-500 font-medium mb-1">
+                  Amount Received
+                </p>
+                <div className="relative flex-1">
+                  <div className="inline-flex items-center w-full border border-slate-200 rounded-lg bg-slate-50 overflow-hidden focus-within:ring-1 focus-within:ring-blue-500">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setReceived(Math.max(0, received - 10));
                         setReceivedTouched(true);
                       }}
-                      className="w-full text-xs font-semibold bg-slate-50 border border-slate-200 rounded-lg pl-7 pr-3 py-2 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                    />
+                      className="px-2 text-slate-400 hover:bg-slate-200 transition-colors self-stretch flex items-center shrink-0"
+                      aria-label="Decrease amount by 10"
+                    >
+                      <Minus className="w-3 h-3" />
+                    </button>
+                    <div className="flex-1 flex items-center justify-center min-w-0">
+                      <span className="text-lg font-bold text-slate-400 mr-0.5">
+                        ₹
+                      </span>
+                      <input
+                        type="number"
+                        value={received}
+                        onChange={(e) => {
+                          setReceived(Number(e.target.value));
+                          setReceivedTouched(true);
+                        }}
+                        className="w-24 text-lg font-bold bg-transparent text-center py-1.5 focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setReceived(received + 10);
+                        setReceivedTouched(true);
+                      }}
+                      className="px-2 text-slate-400 hover:bg-slate-200 transition-colors self-stretch flex items-center shrink-0"
+                      aria-label="Increase amount by 10"
+                    >
+                      <Plus className="w-3 h-3" />
+                    </button>
                   </div>
                 </div>
+              </div>
 
-                <div>
-                  <p className="text-[11px] text-slate-500 font-medium mb-1">
-                    Change
-                  </p>
-                  <div className="bg-emerald-50/60 border border-emerald-100 rounded-lg p-2 text-xs font-bold text-emerald-600">
-                    ₹ {fmt(Math.max(0, received - payable))}
-                  </div>
+              <div className="flex flex-col">
+                <p className="text-[11px] text-slate-500 font-medium mb-1">
+                  Change
+                </p>
+                <div className="flex-1 flex items-center bg-emerald-50/60 border border-emerald-100 rounded-lg pl-7 pr-3 py-1.5 text-lg font-bold text-emerald-600">
+                  ₹ {fmt(Math.max(0, received - payable))}
                 </div>
-              </>
-            )}
+              </div>
+            </div>
 
             {error && (
               <div className="bg-red-50 border border-red-200 rounded-lg p-2 text-xs font-semibold text-red-600 flex items-center space-x-1.5">
@@ -698,16 +740,87 @@ export default function AddSalePage() {
             >
               <Check className="w-4 h-4" />
               <span>
-                {submitting
-                  ? "Saving..."
-                  : saleType === "credit"
-                    ? "Submit Sale (Add to Khata)"
-                    : "Submit Sale"}
+                {submitting ? "Saving..." : "Submit Sale"}
               </span>
             </button>
           </div>
+          )}
         </div>
       </div>
+
+      {quickAddOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+          <div className="bg-white rounded-xl w-full max-w-sm p-5 shadow-xl">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-sm font-bold text-slate-800">
+                New Add Product
+              </h3>
+              <button
+                type="button"
+                onClick={() => setQuickAddOpen(false)}
+                className="text-slate-400 hover:text-slate-600"
+                aria-label="Close"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <label className="block text-[11px] font-medium text-slate-700 mb-1">
+                  Product Name <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={qaName}
+                  onChange={(e) => setQaName(e.target.value)}
+                  placeholder="Enter product name"
+                  className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-[11px] font-medium text-slate-700 mb-1">
+                    MRP (₹) <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="number"
+                    value={qaMrp}
+                    onChange={(e) => setQaMrp(e.target.value)}
+                    placeholder="MRP"
+                    className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-medium text-slate-700 mb-1">
+                    Sale Price (₹) <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="number"
+                    value={qaSale}
+                    onChange={(e) => setQaSale(e.target.value)}
+                    placeholder="Sale"
+                    className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {qaError && (
+              <p className="text-xs text-red-500 mt-3">{qaError}</p>
+            )}
+
+            <button
+              type="button"
+              onClick={handleQuickAdd}
+              disabled={qaSaving}
+              className="mt-4 w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-semibold py-2 rounded-lg"
+            >
+              {qaSaving ? "Adding..." : "Add"}
+            </button>
+          </div>
+        </div>
+      )}
     </AppShell>
   );
 }

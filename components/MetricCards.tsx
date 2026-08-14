@@ -13,7 +13,7 @@ import {
   ArrowUpRight,
   ShoppingBag,
   Wallet,
-  Calendar,
+  TrendingUp,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
@@ -37,13 +37,13 @@ function MetricCard({ metric }: { metric: Metric }) {
     <div
       className={`${metric.bg} ${metric.border} border-b-4 rounded-xl p-3 flex flex-col justify-between text-white shadow-sm hover:shadow-md transition-all duration-100 active:translate-y-[2px] active:border-b-2`}
     >
-      <div className="flex items-start justify-between">
+      <div className="flex items-center justify-center space-x-2">
         <div className="p-2 bg-white/20 text-white rounded-lg">
           <Icon className="w-4 h-4" />
         </div>
-        <span className="text-xs text-white/80 font-medium">{metric.title}</span>
+        <span className="text-xs text-white/90 font-medium">{metric.title}</span>
       </div>
-      <div className="mt-2">
+      <div className="mt-2 text-center">
         <h3 className="text-xl font-bold">{metric.value}</h3>
         <p className="text-[11px] text-white/70 mt-0.5">{metric.subtitle}</p>
       </div>
@@ -106,30 +106,32 @@ export default function MetricCards() {
   }, []);
 
   const dash = "—";
-  const given = metrics ? formatRupee(metrics.given) : dash;
+  const given = metrics ? formatRupee(metrics.giveBack) : dash;
   const recovered = metrics ? formatRupee(metrics.recovered) : dash;
+  const totalDue = metrics ? formatRupee(metrics.totalDue) : dash;
   const saleToday = metrics ? formatRupee(metrics.saleToday) : dash;
   const collectionToday = metrics ? formatRupee(metrics.collectionToday) : dash;
+  const profitToday = metrics ? formatRupee(metrics.profitToday) : dash;
   const profit = metrics ? formatRupee(metrics.profitThisMonth) : dash;
 
   const metricCards: Metric[] = [
     {
-      title: "You will give",
+      title: "You will Give",
       value: given,
-      subtitle: metrics ? `${metrics.givenCustomers} Customers` : "Loading...",
+      subtitle: metrics ? `${metrics.giveBackCustomers} Customers` : "Loading...",
       icon: ArrowDownLeft,
-      bg: "bg-red-500",
-      hoverBg: "hover:bg-red-600",
-      border: "border-red-700",
-    },
-    {
-      title: "You will get",
-      value: recovered,
-      subtitle: metrics ? `${metrics.recoveredPayments} Payments` : "Loading...",
-      icon: ArrowUpRight,
       bg: "bg-emerald-500",
       hoverBg: "hover:bg-emerald-600",
       border: "border-emerald-700",
+    },
+    {
+      title: "You will Get",
+      value: totalDue,
+      subtitle: metrics ? `${metrics.dueCustomers} Customers` : "Loading...",
+      icon: ArrowUpRight,
+      bg: "bg-red-500",
+      hoverBg: "hover:bg-red-600",
+      border: "border-red-700",
     },
     {
       title: "Sale Today",
@@ -141,9 +143,9 @@ export default function MetricCards() {
       border: "border-blue-700",
     },
     {
-      title: "Collection Today",
-      value: collectionToday,
-      subtitle: metrics ? `${metrics.collectionTodayCount} Payments` : "Loading...",
+      title: "Profit Today",
+      value: profitToday,
+      subtitle: metrics ? `${metrics.saleTodayCount} Transactions` : "Loading...",
       icon: Wallet,
       bg: "bg-purple-500",
       hoverBg: "hover:bg-purple-600",
@@ -152,29 +154,20 @@ export default function MetricCards() {
   ];
 
   return (
-    <div className="grid grid-cols-6 gap-3">
+    <div className="grid grid-cols-5 gap-3">
       {metricCards.map((metric) => (
         <MetricCard key={metric.title} metric={metric} />
       ))}
-
-      <div className="col-span-2 bg-amber-500 border-amber-700 border-b-4 rounded-xl p-3 flex flex-col justify-between text-white shadow-sm hover:shadow-md transition-all duration-100 active:translate-y-[2px] active:border-b-2">
-        <div className="flex items-center justify-between border-b border-white/20 pb-2">
-          <div className="flex items-center space-x-1.5 text-xs text-white/90 font-medium">
-            <Calendar className="w-3.5 h-3.5" />
-            <span>{metrics ? metrics.dateLabel : "Loading..."}</span>
+      <div className="bg-amber-500 border-amber-700 border-b-4 rounded-xl p-3 flex flex-col justify-between text-white shadow-sm hover:shadow-md transition-all duration-100 active:translate-y-[2px] active:border-b-2">
+        <div className="flex items-center justify-center space-x-2">
+          <div className="p-2 bg-white/20 text-white rounded-lg">
+            <TrendingUp className="w-4 h-4" />
           </div>
+          <span className="text-xs text-white/90 font-medium">Total Profit</span>
         </div>
-        <div className="flex items-center justify-between pt-1">
-          <div>
-            <span className="text-xs text-white/80 font-medium">
-              Total Profit
-            </span>
-            <h3 className="text-xl font-bold mt-0.5">{profit}</h3>
-            <p className="text-[10px] text-white/70">This Month</p>
-          </div>
-          <div className="w-10 h-10 bg-white text-amber-500 rounded-full flex items-center justify-center text-lg font-bold">
-            ₹
-          </div>
+        <div className="mt-2 text-center">
+          <h3 className="text-xl font-bold">{profit}</h3>
+          <p className="text-[11px] text-white/70 mt-0.5">This Month</p>
         </div>
       </div>
     </div>

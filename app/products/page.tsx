@@ -8,11 +8,15 @@ import {
   ArrowRight,
   Check,
   AlertCircle,
+  Pencil,
+  X,
 } from "lucide-react";
 import SalesSection from "@/components/SalesSection";
 import AppShell from "@/components/AppShell";
+import ProductImage from "@/components/ProductImage";
 import {
   saveProduct,
+  updateProduct,
   fetchRecentProducts,
   type ProductRecord,
   type RecentProduct,
@@ -20,7 +24,7 @@ import {
 
 const fmt = (n: number) =>
   n.toLocaleString("en-IN", {
-    minimumFractionDigits: 2,
+    minimumFractionDigits: 0,
     maximumFractionDigits: 2,
   });
 
@@ -38,50 +42,6 @@ function formatDate(ts: number) {
   });
 }
 
-const dressSvg = (
-  <svg
-    viewBox="0 0 200 200"
-    fill="none"
-    xmlns="http://www.w3.org/2000/svg"
-    className="w-full h-full"
-  >
-    <path
-      d="M45 70 L50 50 L55 70 L75 75 L55 80 L50 100 L45 80 L25 75 Z"
-      fill="#38bdf8"
-    />
-    <path
-      d="M155 90 L160 75 L165 90 L180 95 L165 100 L160 115 L155 100 L140 95 Z"
-      fill="#38bdf8"
-    />
-    <path
-      d="M70 30 C70 30, 85 55, 100 55 C115 55, 130 30, 130 30 L145 65 L125 90 L75 90 L55 65 Z"
-      fill="#e0f2fe"
-      stroke="#1e1b4b"
-      strokeWidth="10"
-      strokeLinejoin="round"
-    />
-    <path
-      d="M75 90 L125 90 L150 165 C150 165, 125 180, 100 175 C75 180, 50 165, 50 165 Z"
-      fill="#3b82f6"
-      stroke="#1e1b4b"
-      strokeWidth="10"
-      strokeLinejoin="round"
-    />
-    <path
-      d="M85 130 C85 130, 80 160, 95 170"
-      stroke="#e0f2fe"
-      strokeWidth="8"
-      strokeLinecap="round"
-    />
-    <path
-      d="M115 140 C115 140, 120 160, 122 170"
-      stroke="#e0f2fe"
-      strokeWidth="8"
-      strokeLinecap="round"
-    />
-  </svg>
-);
-
 export default function AddProductPage() {
   const [name, setName] = useState("");
   const [barcode, setBarcode] = useState("");
@@ -89,10 +49,24 @@ export default function AddProductPage() {
   const [cost, setCost] = useState(0);
   const [costDiscount, setCostDiscount] = useState("");
   const [sale, setSale] = useState(0);
+  const [category, setCategory] = useState("");
+  const [brand, setBrand] = useState("");
+  const [unit, setUnit] = useState("");
+  const [tax, setTax] = useState(0);
+  const [discount, setDiscount] = useState(0);
+  const [stock, setStock] = useState(0);
+  const [showImage, setShowImage] = useState(false);
+  const [showQty, setShowQty] = useState(false);
+  const [showCategory, setShowCategory] = useState(false);
+  const [showBrand, setShowBrand] = useState(false);
+  const [showUnit, setShowUnit] = useState(false);
+  const [showTax, setShowTax] = useState(false);
+  const [showDiscount, setShowDiscount] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [recent, setRecent] = useState<RecentProduct[]>([]);
+  const [editingName, setEditingName] = useState<string | null>(null);
 
   useEffect(() => {
     fetchRecentProducts()
@@ -106,13 +80,33 @@ export default function AddProductPage() {
     setBarcode(`KB${timestamp}${rand}`);
   };
 
+  const editProduct = (p: RecentProduct) => {
+    setEditingName(p.name);
+    setName(p.name);
+    setBarcode(p.sku);
+    setMrp(p.mrp);
+    setCost(p.cost ?? 0);
+    setSale(p.sale ?? 0);
+    setCostDiscount("");
+    setError(null);
+    setSaved(false);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
   const resetForm = () => {
+    setEditingName(null);
     setName("");
     setBarcode("");
     setMrp(0);
     setCost(0);
     setCostDiscount("");
     setSale(0);
+    setCategory("");
+    setBrand("");
+    setUnit("");
+    setTax(0);
+    setDiscount(0);
+    setStock(0);
     setError(null);
     setSaved(false);
   };
@@ -139,23 +133,42 @@ export default function AddProductPage() {
       const record: ProductRecord = {
         name: name.trim(),
         barcode: generatedBarcode,
+        category: category || undefined,
+        brand: brand.trim() || undefined,
+        unit: unit || undefined,
         mrp: Number(mrp),
         cost: Number(cost) || undefined,
         sale: Number(sale) > 0 ? Number(sale) : undefined,
+        tax: Number(tax) || undefined,
+        discount: Number(discount) || undefined,
+        stock: Number(stock) || undefined,
         active: true,
         trackStock: true,
-        createdAt: Date.now(),
+        createdAt:
+          editingName === name.trim()
+            ? recent.find((p) => p.name === editingName)?.createdAt ?? Date.now()
+            : Date.now(),
       };
-      await saveProduct(record);
+      if (editingName && editingName !== name.trim()) {
+        await updateProduct(editingName, record);
+        setEditingName(null);
+      } else if (editingName) {
+        await updateProduct(editingName, record);
+        setEditingName(null);
+      } else {
+        await saveProduct(record);
+      }
       setSaved(true);
       setRecent((prev) => [
         {
           name: record.name,
           sku: record.barcode ?? "",
           mrp: record.mrp,
+          cost: record.cost,
+          sale: record.sale,
           createdAt: record.createdAt,
         },
-        ...prev,
+        ...prev.filter((p) => p.name !== editingName),
       ]);
       if (clearAfter) {
         resetForm();
@@ -169,9 +182,11 @@ export default function AddProductPage() {
   };
 
   return (
-    <AppShell title="Add Product" active="Products">
-      {/* Top Action Navigation */}
-      <div className="flex justify-end">
+    <AppShell title="" active="Products">
+      {/* Page title + action */}
+      <div className="flex items-center justify-between">
+        <h1 className="text-xl font-bold text-slate-800">Products</h1>
+
         <a
           href="/products/all"
           className="text-xs text-slate-600 font-medium hover:text-slate-900 flex items-center space-x-1 border border-slate-200 rounded-lg px-3 py-1.5 bg-white shadow-sm"
@@ -185,9 +200,76 @@ export default function AddProductPage() {
         {/* LEFT: PRODUCT FORM */}
         <div className="col-span-8 space-y-4">
           <div className="bg-white rounded-xl p-4 border border-slate-200 space-y-4">
-            <div className="flex items-center space-x-2 border-b border-slate-100 pb-2 text-blue-600 font-bold text-xs">
-              <Package className="w-4 h-4" />
-              <span>Product Information</span>
+            <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+              <div className="flex items-center space-x-2 text-blue-600 font-bold text-xs">
+                <Package className="w-4 h-4" />
+                <span>Product Information</span>
+              </div>
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-slate-600">
+                <label className="flex items-center space-x-1 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={showImage}
+                    onChange={(e) => setShowImage(e.target.checked)}
+                    className="rounded text-blue-600 focus:ring-blue-500 w-3 h-3"
+                  />
+                  <span>Image</span>
+                </label>
+                <label className="flex items-center space-x-1 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={showQty}
+                    onChange={(e) => setShowQty(e.target.checked)}
+                    className="rounded text-blue-600 focus:ring-blue-500 w-3 h-3"
+                  />
+                  <span>Qty / Stock</span>
+                </label>
+                <label className="flex items-center space-x-1 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={showCategory}
+                    onChange={(e) => setShowCategory(e.target.checked)}
+                    className="rounded text-blue-600 focus:ring-blue-500 w-3 h-3"
+                  />
+                  <span>Category</span>
+                </label>
+                <label className="flex items-center space-x-1 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={showBrand}
+                    onChange={(e) => setShowBrand(e.target.checked)}
+                    className="rounded text-blue-600 focus:ring-blue-500 w-3 h-3"
+                  />
+                  <span>Brand</span>
+                </label>
+                <label className="flex items-center space-x-1 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={showUnit}
+                    onChange={(e) => setShowUnit(e.target.checked)}
+                    className="rounded text-blue-600 focus:ring-blue-500 w-3 h-3"
+                  />
+                  <span>Unit</span>
+                </label>
+                <label className="flex items-center space-x-1 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={showTax}
+                    onChange={(e) => setShowTax(e.target.checked)}
+                    className="rounded text-blue-600 focus:ring-blue-500 w-3 h-3"
+                  />
+                  <span>Tax</span>
+                </label>
+                <label className="flex items-center space-x-1 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={showDiscount}
+                    onChange={(e) => setShowDiscount(e.target.checked)}
+                    className="rounded text-blue-600 focus:ring-blue-500 w-3 h-3"
+                  />
+                  <span>Discount</span>
+                </label>
+              </div>
             </div>
 
             <div className="grid grid-cols-3 gap-3">
@@ -282,25 +364,153 @@ export default function AddProductPage() {
                 />
               </div>
             </div>
+
+            {showImage && (
+              <div className="flex items-center space-x-3 bg-blue-50/30 border border-dashed border-blue-200 rounded-xl p-3">
+                <ProductImage className="w-12 h-12 p-2" />
+                <div className="text-[11px] text-slate-500">
+                  <p className="font-semibold text-slate-600">Product Image</p>
+                  <p>Upload an image for this product.</p>
+                </div>
+                <button
+                  type="button"
+                  className="ml-auto text-xs bg-blue-600 hover:bg-blue-700 text-white font-semibold px-3 py-1.5 rounded-lg"
+                >
+                  Choose Image
+                </button>
+              </div>
+            )}
+
+            {showQty && (
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className={labelClass}>Initial Stock (Qty)</label>
+                  <input
+                    type="number"
+                    value={stock || ""}
+                    onChange={(e) => setStock(Number(e.target.value))}
+                    className={inputClass}
+                    placeholder="Enter stock"
+                  />
+                </div>
+              </div>
+            )}
+
+            {showCategory && (
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className={labelClass}>Category</label>
+                  <select
+                    value={category}
+                    onChange={(e) => setCategory(e.target.value)}
+                    className={inputClass}
+                  >
+                    <option value="">Select category</option>
+                    <option>Men&apos;s Wear</option>
+                    <option>Women&apos;s Wear</option>
+                    <option>Kids Wear</option>
+                    <option>Sarees</option>
+                    <option>Innerwear</option>
+                    <option>Accessories</option>
+                    <option>Household</option>
+                    <option>Other</option>
+                  </select>
+                </div>
+                <div>
+                  <label className={labelClass}>Brand</label>
+                  <input
+                    type="text"
+                    value={brand}
+                    onChange={(e) => setBrand(e.target.value)}
+                    className={inputClass}
+                    placeholder="Enter brand name"
+                  />
+                </div>
+                <div>
+                  <label className={labelClass}>Unit</label>
+                  <select
+                    value={unit}
+                    onChange={(e) => setUnit(e.target.value)}
+                    className={inputClass}
+                  >
+                    <option value="">Select unit</option>
+                    <option>Pieces</option>
+                    <option>Pack</option>
+                    <option>Pair</option>
+                    <option>Set</option>
+                    <option>Metre</option>
+                  </select>
+                </div>
+              </div>
+            )}
+
+            {showTax && (
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className={labelClass}>Tax (%)</label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      value={tax || ""}
+                      onChange={(e) => setTax(Number(e.target.value))}
+                      className={inputClass}
+                      placeholder="Enter tax %"
+                    />
+                    <span className="absolute inset-y-0 right-0 flex items-center pr-3 text-slate-400 text-xs pointer-events-none">
+                      %
+                    </span>
+                  </div>
+                </div>
+                <div>
+                  <label className={labelClass}>Discount (%)</label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      value={discount || ""}
+                      onChange={(e) => setDiscount(Number(e.target.value))}
+                      className={inputClass}
+                      placeholder="Enter discount %"
+                    />
+                    <span className="absolute inset-y-0 right-0 flex items-center pr-3 text-slate-400 text-xs pointer-events-none">
+                      %
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="flex items-center justify-between pt-2">
             <button
               type="button"
               onClick={resetForm}
-              className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-semibold rounded-lg"
+              className={`px-4 py-2 text-xs font-semibold rounded-lg ${
+                editingName
+                  ? "bg-pink-50 hover:bg-pink-100 text-pink-700 flex items-center space-x-1"
+                  : "bg-slate-100 hover:bg-slate-200 text-slate-600"
+              }`}
             >
-              Reset
+              {editingName && <X className="w-3.5 h-3.5" />}
+              <span>{editingName ? "Cancel Edit" : "Reset"}</span>
             </button>
             <div className="flex items-center space-x-2">
               <button
                 type="button"
                 onClick={() => doSave(true)}
                 disabled={submitting}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-lg shadow-sm flex items-center space-x-1.5 disabled:opacity-50"
+                className={`px-4 py-2 text-white text-xs font-semibold rounded-lg shadow-sm flex items-center space-x-1.5 disabled:opacity-50 ${
+                  editingName
+                    ? "bg-pink-700 hover:bg-pink-800"
+                    : "bg-blue-600 hover:bg-blue-700"
+                }`}
               >
                 {submitting ? (
-                  <span>Saving...</span>
+                  <span>{editingName ? "Updating..." : "Saving..."}</span>
+                ) : editingName ? (
+                  <>
+                    <Check className="w-3.5 h-3.5" />
+                    <span>Update Product</span>
+                  </>
                 ) : (
                   <>
                     <Check className="w-3.5 h-3.5" />
@@ -323,10 +533,7 @@ export default function AddProductPage() {
               <span>Product saved to Firebase successfully.</span>
             </div>
           )}
-        </div>
 
-        {/* RIGHT: RECENT PRODUCTS */}
-        <div className="col-span-4 space-y-4">
           <div className="bg-white rounded-xl p-4 border border-slate-200">
             <div className="flex items-center justify-between border-b border-slate-100 pb-2 mb-3">
               <div className="flex items-center space-x-1.5 text-xs font-bold text-slate-800">
@@ -338,39 +545,64 @@ export default function AddProductPage() {
               </a>
             </div>
 
-            <div className="space-y-3 text-xs">
-              {recent.length === 0 && (
-                <p className="text-center text-slate-400 text-[11px] py-4">
-                  No products added yet. Save your first product.
-                </p>
-              )}
-              {recent.map((p) => (
-                <div
-                  key={`${p.name}-${p.createdAt}`}
-                  className="flex items-center justify-between pb-2 border-b border-slate-50 last:border-b-0"
-                >
-                  <div className="flex items-center space-x-3">
-                    <div className="w-9 h-9 rounded-lg bg-blue-50 border border-blue-100 flex items-center justify-center shrink-0 p-1">
-                      {dressSvg}
-                    </div>
-                    <div>
-                      <p className="font-bold text-slate-800">{p.name}</p>
-                      <p className="text-[10px] text-slate-400">
-                        {p.sku ? `SKU: ${p.sku}` : "No SKU"}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <p className="font-bold text-slate-800">₹{fmt(p.mrp)}</p>
-                    <p className="text-[10px] text-slate-400">
-                      {formatDate(p.createdAt)}
-                    </p>
-                  </div>
-                </div>
-              ))}
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-pink-100 text-pink-800 text-[10px] font-semibold">
+                    <th className="py-2 pl-2 pr-1 text-left rounded-l-lg">Product</th>
+                    <th className="py-2 px-2 text-left">Barcode / SKU</th>
+                    <th className="py-2 px-2 text-left">MRP (₹)</th>
+                    <th className="py-2 px-2 text-left">Cost (₹)</th>
+                    <th className="py-2 pl-2 pr-2 text-right rounded-r-lg">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="text-xs divide-y divide-slate-100">
+                  {recent.length === 0 && (
+                    <tr>
+                      <td colSpan={5} className="py-6 text-center text-slate-400">
+                        No products added yet. Save your first product.
+                      </td>
+                    </tr>
+                  )}
+                  {recent.map((p) => (
+                    <tr key={`${p.name}-${p.createdAt}`}>
+                      <td className="py-2 pr-2">
+                        <div className="flex items-center space-x-2">
+                          <ProductImage name={p.name} />
+                          <span className="font-medium text-slate-800">
+                            {p.name}
+                          </span>
+                        </div>
+                      </td>
+                      <td className="py-2 pr-2 text-slate-500">
+                        {p.sku || "—"}
+                      </td>
+                      <td className="py-2 pr-2 text-slate-700">
+                        {fmt(p.mrp)}
+                      </td>
+                      <td className="py-2 pr-2 text-slate-700">
+                        {p.cost != null ? fmt(p.cost) : "—"}
+                      </td>
+                      <td className="py-2 text-right">
+                        <button
+                          type="button"
+                          onClick={() => editProduct(p)}
+                          className="text-blue-600 hover:text-blue-800 p-1.5 hover:bg-blue-50 rounded-lg"
+                          aria-label={`Edit ${p.name}`}
+                        >
+                          <Pencil className="w-4 h-4" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </div>
+        </div>
 
+        {/* RIGHT: SALES */}
+        <div className="col-span-4 space-y-4">
           <SalesSection limit={5} />
         </div>
       </div>

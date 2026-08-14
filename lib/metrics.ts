@@ -5,10 +5,15 @@ export type Metrics = {
   givenCustomers: number;
   recovered: number;
   recoveredPayments: number;
+  totalDue: number;
+  dueCustomers: number;
+  giveBack: number;
+  giveBackCustomers: number;
   saleToday: number;
   saleTodayCount: number;
   collectionToday: number;
   collectionTodayCount: number;
+  profitToday: number;
   profitThisMonth: number;
   dateLabel: string;
 };
@@ -63,6 +68,10 @@ export function buildMetrics(
   let givenCustomers = 0;
   let recovered = 0;
   let recoveredPayments = 0;
+  let totalDue = 0;
+  let dueCustomers = 0;
+  let giveBack = 0;
+  let giveBackCustomers = 0;
   let collectionToday = 0;
   let collectionTodayCount = 0;
 
@@ -77,11 +86,14 @@ export function buildMetrics(
   }
 
   for (const c of toEntries(rawCustomers)) {
+    let customerGiven = 0;
+    let customerGot = 0;
     let hasGave = false;
     for (const t of toEntries((c.transactions as RawMap) ?? null)) {
       const amount = Number(t.amount ?? 0);
       const date = String(t.date ?? "");
       if (t.type === "got") {
+        customerGot += amount;
         recovered += amount;
         recoveredPayments += 1;
         if (date === todayKey) {
@@ -89,11 +101,19 @@ export function buildMetrics(
           collectionTodayCount += 1;
         }
       } else {
-        given += amount;
+        customerGiven += amount;
         hasGave = true;
       }
     }
     if (hasGave) givenCustomers += 1;
+    const due = customerGiven - customerGot;
+    if (due > 0) {
+      totalDue += due;
+      dueCustomers += 1;
+    } else if (due < 0) {
+      giveBack += -due;
+      giveBackCustomers += 1;
+    }
   }
 
   let saleToday = 0;
@@ -110,6 +130,7 @@ export function buildMetrics(
     }
   }
 
+  let profitToday = 0;
   let profitThisMonth = 0;
   for (const s of toEntries(rawSales)) {
     const date = String(s.date ?? "");
@@ -117,8 +138,9 @@ export function buildMetrics(
     const mrp = Number(s.mrp ?? 0);
     const sale = Number(s.sale ?? 0);
     const quantity = Number(s.quantity ?? 1);
-    profitThisMonth +=
-      sale - costOf(String(s.productName ?? ""), mrp) * quantity;
+    const p = sale - costOf(String(s.productName ?? ""), mrp) * quantity;
+    profitThisMonth += p;
+    if (date === todayKey) profitToday += p;
   }
 
   return {
@@ -126,10 +148,15 @@ export function buildMetrics(
     givenCustomers,
     recovered,
     recoveredPayments,
+    totalDue,
+    dueCustomers,
+    giveBack,
+    giveBackCustomers,
     saleToday,
     saleTodayCount,
     collectionToday,
     collectionTodayCount,
+    profitToday,
     profitThisMonth,
     dateLabel: formatDateLabel(now),
   };

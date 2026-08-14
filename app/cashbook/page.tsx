@@ -56,7 +56,7 @@ ChartJS.register(
 
 const fmt = (n: number) =>
   n.toLocaleString("en-IN", {
-    minimumFractionDigits: 2,
+    minimumFractionDigits: 0,
     maximumFractionDigits: 2,
   });
 
@@ -305,13 +305,8 @@ export default function CashBookPage() {
   return (
     <AppShell title="Cash Book" active="Cash Book">
       {/* PAGE TITLE */}
-      <div className="flex items-start justify-between">
-        <div>
-          <h2 className="text-base font-bold text-slate-800">Cash Book</h2>
-          <p className="text-xs text-slate-500">
-            Track all cash inflows and outflows
-          </p>
-        </div>
+      <div className="flex items-center justify-between">
+        <h1 className="text-xl font-bold text-slate-800">Cash Book</h1>
         <button
           type="button"
           onClick={() => openAdd("in")}
@@ -740,7 +735,7 @@ export default function CashBookPage() {
                   type="number"
                   value={amount}
                   onChange={(e) => setAmount(e.target.value)}
-                  placeholder="0.00"
+                  placeholder="0"
                   className="w-full text-xs font-semibold bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-blue-500"
                 />
               </div>

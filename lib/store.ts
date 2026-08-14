@@ -5,6 +5,7 @@ export type Product = {
   name: string;
   mrp: number;
   sale: number;
+  createdAt?: number;
 };
 
 export type CustomerSummary = {
@@ -33,22 +34,70 @@ function toDateKey(d: Date): string {
 export async function fetchProducts(): Promise<Product[]> {
   const snap = await get(ref(db, "products"));
   const raw = snap.val() as
-    | Record<string, { name?: string; mrp?: number; sale?: number }>
+    | Record<
+        string,
+        { name?: string; mrp?: number; sale?: number; createdAt?: number }
+      >
     | null;
-  if (!raw) return [];
 
-  return Object.values(raw)
-    .map((p) => {
+  const byName = new Map<string, Product>();
+  if (raw) {
+    for (const p of Object.values(raw)) {
+      const name = String(p.name ?? "").trim();
+      if (!name) continue;
       const mrp = Number(p.mrp ?? 0);
       const sale = Number(p.sale ?? 0);
-      return {
-        name: String(p.name ?? "").trim(),
+      byName.set(name, {
+        name,
         mrp,
         sale: sale > 0 ? sale : mrp,
-      };
-    })
+        createdAt: Number(p.createdAt ?? 0),
+      });
+    }
+  }
+
+  const salesSnap = await get(ref(db, "sales"));
+  const salesRaw = salesSnap.val() as
+    | Record<
+        string,
+        {
+          productName?: string;
+          mrp?: number;
+          sale?: number;
+          salePrice?: number;
+          createdAt?: number;
+        }
+      >
+    | null;
+  if (salesRaw) {
+    for (const r of Object.values(salesRaw)) {
+      const name = String(r.productName ?? "").trim();
+      if (!name) continue;
+      const existing = byName.get(name);
+      if (existing) {
+        if (!existing.createdAt) {
+          existing.createdAt = Number(r.createdAt ?? 0);
+        }
+        continue;
+      }
+      const mrp = Number(r.mrp ?? 0);
+      const salePrice = Number(r.salePrice ?? r.sale ?? 0);
+      byName.set(name, {
+        name,
+        mrp,
+        sale: salePrice > 0 ? salePrice : mrp,
+        createdAt: Number(r.createdAt ?? 0),
+      });
+    }
+  }
+
+  return Array.from(byName.values())
     .filter((p) => p.name)
-    .sort((a, b) => a.name.localeCompare(b.name));
+    .sort(
+      (a, b) =>
+        (b.createdAt ?? 0) - (a.createdAt ?? 0) ||
+        a.name.localeCompare(b.name)
+    );
 }
 
 export async function fetchCustomers(): Promise<CustomerSummary[]> {

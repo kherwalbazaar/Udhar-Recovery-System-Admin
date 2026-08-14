@@ -23,7 +23,7 @@ const navItems = [
   { label: "Expenses", icon: Receipt, href: "#" },
   { label: "Profit & Loss", icon: TrendingUp, href: "#" },
   { label: "Reports", icon: BarChart2, href: "#" },
-  { label: "Reminders", icon: Bell, href: "#" },
+  { label: "Reminders", icon: Bell, href: "/reminders" },
   { label: "Settings", icon: Settings, href: "#" },
 ];
 

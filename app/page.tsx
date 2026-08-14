@@ -10,7 +10,11 @@ import Footer from "@/components/Footer";
 
 export default function Home() {
   return (
-    <AppShell title="Dashboard" active="Dashboard">
+    <AppShell title="" active="Dashboard">
+      <div className="flex items-center justify-between">
+        <h1 className="text-xl font-bold text-slate-800">Dashboard</h1>
+      </div>
+
       <MetricCards />
       <QuickActions />
 

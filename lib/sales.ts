@@ -39,6 +39,7 @@ export type ProductSaleRow = {
   profit: number;
   date: string;
   time: string;
+  createdAt: number;
 };
 
 function toEntries(raw: RawMap): Record<string, unknown>[] {
@@ -177,8 +178,9 @@ export function buildProductSalesReport(
         profit,
         date: String(s.date ?? ""),
         time: formatTime(Number(s.createdAt ?? 0)),
+        createdAt: Number(s.createdAt ?? 0),
       };
     })
     .filter((r) => r.product)
-    .sort((a, b) => b.date.localeCompare(a.date));
+    .sort((a, b) => b.createdAt - a.createdAt);
 }

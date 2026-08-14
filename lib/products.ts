@@ -30,6 +30,8 @@ export type RecentProduct = {
   name: string;
   sku: string;
   mrp: number;
+  cost?: number;
+  sale?: number;
   createdAt: number;
 };
 
@@ -113,19 +115,21 @@ export async function fetchSoldProducts(): Promise<ProductWithSales[]> {
   soldMap.forEach((s) => {
     const p = productsRaw ? productsRaw[s.name] : undefined;
     const mrp = s.mrp > 0 ? s.mrp : Number(p?.mrp ?? 0);
+    const isCatalog = Boolean(p);
     records.push({
       name: s.name,
       barcode: p?.barcode ? String(p.barcode) : undefined,
       mrp,
-      cost: mrp > 0 ? mrp / 2 : undefined,
-      sale:
-        s.sale > 0
-          ? s.sale
-          : p?.sale != null
-            ? Number(p.sale)
-            : undefined,
+      cost: isCatalog
+        ? p?.cost != null
+          ? Number(p.cost)
+          : undefined
+        : mrp > 0
+          ? mrp / 2
+          : undefined,
+      sale: s.sale > 0 ? s.sale : p?.sale != null ? Number(p.sale) : undefined,
       totalQty: s.qty,
-      inCatalog: Boolean(p),
+      inCatalog: isCatalog,
     });
   });
 
@@ -187,9 +191,11 @@ export async function fetchRecentProducts(): Promise<RecentProduct[]> {
       name: String(r.name ?? ""),
       sku: String(r.barcode ?? r.sku ?? ""),
       mrp: Number(r.mrp ?? 0),
+      cost: r.cost != null ? Number(r.cost) : undefined,
+      sale: r.sale != null ? Number(r.sale) : undefined,
       createdAt: Number(r.createdAt ?? 0),
     }))
     .filter((p) => p.name)
     .sort((a, b) => b.createdAt - a.createdAt)
-    .slice(0, 5);
+    .slice(0, 3);
 }

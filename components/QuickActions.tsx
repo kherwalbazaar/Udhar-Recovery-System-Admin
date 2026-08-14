@@ -5,7 +5,6 @@ import {
   Users,
   CreditCard,
   Bell,
-  MoreHorizontal,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
@@ -64,13 +63,7 @@ const actions: Action[] = [
     bg: "bg-red-500",
     hoverBg: "hover:bg-red-600",
     border: "border-red-700",
-  },
-  {
-    label: "More",
-    icon: MoreHorizontal,
-    bg: "bg-slate-500",
-    hoverBg: "hover:bg-slate-600",
-    border: "border-slate-700",
+    href: "/reminders",
   },
 ];
 
@@ -80,7 +73,7 @@ export default function QuickActions() {
       <h3 className="text-xs font-semibold text-slate-700 mb-3">
         Quick Actions
       </h3>
-      <div className="grid grid-cols-7 gap-3">
+      <div className="grid grid-cols-6 gap-3">
         {actions.map(
           ({ label, icon: Icon, bg, hoverBg, border, href }) =>
             href ? (

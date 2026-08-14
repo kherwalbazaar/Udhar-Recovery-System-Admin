@@ -1,6 +1,6 @@
 import { Crown, Search, Bell, ChevronDown } from "lucide-react";
 
-export default function Header({ title = "Dashboard" }: { title?: string }) {
+export default function Header({ title: _title = "Dashboard" }: { title?: string }) {
   return (
     <header className="bg-[#0b1e59] text-white h-16 flex items-center justify-between px-4 shrink-0">
       <div className="flex items-center space-x-3 w-64">
@@ -18,8 +18,6 @@ export default function Header({ title = "Dashboard" }: { title?: string }) {
       </div>
 
       <div className="flex items-center flex-1 max-w-4xl px-4">
-        <h2 className="text-lg font-semibold mr-8">{title}</h2>
-
         <div className="relative flex-1 max-w-md">
           <span className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-slate-400">
             <Search className="w-4 h-4" />

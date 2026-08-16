@@ -35,6 +35,14 @@ export type RecentProduct = {
   createdAt: number;
 };
 
+function sanitizeRecord(p: ProductRecord): Record<string, unknown> {
+  const clean: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(p)) {
+    if (v !== undefined) clean[k] = v;
+  }
+  return clean;
+}
+
 export async function saveProduct(
   p: ProductRecord,
   checkDuplicate = true
@@ -45,7 +53,7 @@ export async function saveProduct(
       throw new Error(`Product "${p.name}" already exists.`);
     }
   }
-  await set(ref(db, `products/${p.name}`), p);
+  await set(ref(db, `products/${p.name}`), sanitizeRecord(p));
 }
 
 export async function fetchAllProducts(): Promise<ProductRecord[]> {
@@ -169,10 +177,10 @@ export async function updateProduct(
   oldName: string,
   p: ProductRecord
 ): Promise<void> {
-  const updates: Record<string, ProductRecord | null> = {
+  const updates: Record<string, ProductRecord | null | Record<string, unknown>> = {
     [`products/${oldName}`]: null,
   };
-  updates[`products/${p.name}`] = p;
+  updates[`products/${p.name}`] = sanitizeRecord(p);
   await update(ref(db), updates);
 }
 

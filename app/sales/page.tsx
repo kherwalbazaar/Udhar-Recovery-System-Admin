@@ -377,7 +377,7 @@ export default function AddSalePage() {
                       <button
                         key={p.name}
                         type="button"
-                        onClick={() => setSearch(p.name)}
+                        onClick={() => addToCart(p)}
                         className="w-full flex items-center justify-between px-3 py-2 hover:bg-blue-50 text-left"
                       >
                         <span className="text-xs font-medium text-slate-700">
@@ -399,7 +399,7 @@ export default function AddSalePage() {
                   <tr className="text-[11px] text-slate-400 border-b border-slate-100">
                     <th className="pb-2 px-2 font-normal w-[50%]">Product Name</th>
                     <th className="pb-2 px-2 font-normal w-[25%] text-right">MRP (₹)</th>
-                    <th className="pb-2 px-2 font-normal text-right w-[25%]">Action</th>
+                    <th className="pb-2 px-2 font-normal text-right w-[25%]">Sale (₹)</th>
                   </tr>
                 </thead>
                 <tbody className="text-xs divide-y divide-slate-100">
@@ -447,22 +447,19 @@ export default function AddSalePage() {
                   {!productsLoading &&
                     !error &&
                     visibleProducts.map((p) => (
-                      <tr key={p.name}>
+                      <tr
+                        key={p.name}
+                        onClick={() => addToCart(p)}
+                        className="cursor-pointer hover:bg-blue-50 transition-colors"
+                      >
                         <td className="py-2 px-2 font-medium text-slate-800 truncate">
                           {p.name}
                         </td>
                         <td className="py-2 px-2 text-slate-600 text-right">
                           {fmt(p.mrp)}
                         </td>
-                        <td className="py-2 px-2 text-right">
-                          <button
-                            type="button"
-                            onClick={() => addToCart(p)}
-                            aria-label={`Add ${p.name} to cart`}
-                            className="w-5 h-5 rounded-full bg-blue-600 hover:bg-blue-700 text-white flex items-center justify-center ml-auto"
-                          >
-                            <Plus className="w-3 h-3" />
-                          </button>
+                        <td className="py-2 px-2 text-slate-700 font-semibold text-right">
+                          {fmt(p.sale)}
                         </td>
                       </tr>
                     ))}

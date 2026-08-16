@@ -50,16 +50,11 @@ export default function AddProductPage() {
   const [costDiscount, setCostDiscount] = useState("");
   const [sale, setSale] = useState(0);
   const [category, setCategory] = useState("");
-  const [brand, setBrand] = useState("");
-  const [unit, setUnit] = useState("");
   const [tax, setTax] = useState(0);
   const [discount, setDiscount] = useState(0);
   const [stock, setStock] = useState(0);
   const [showImage, setShowImage] = useState(false);
   const [showQty, setShowQty] = useState(false);
-  const [showCategory, setShowCategory] = useState(false);
-  const [showBrand, setShowBrand] = useState(false);
-  const [showUnit, setShowUnit] = useState(false);
   const [showTax, setShowTax] = useState(false);
   const [showDiscount, setShowDiscount] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -102,8 +97,6 @@ export default function AddProductPage() {
     setCostDiscount("");
     setSale(0);
     setCategory("");
-    setBrand("");
-    setUnit("");
     setTax(0);
     setDiscount(0);
     setStock(0);
@@ -120,8 +113,16 @@ export default function AddProductPage() {
       setError("MRP must be greater than 0.");
       return;
     }
+    if (!category) {
+      setError("Category is required.");
+      return;
+    }
     if (cost <= 0) {
       setError("Cost Price is required.");
+      return;
+    }
+    if (sale <= 0) {
+      setError("Sale Price is required.");
       return;
     }
     setSubmitting(true);
@@ -134,8 +135,6 @@ export default function AddProductPage() {
         name: name.trim(),
         barcode: generatedBarcode,
         category: category || undefined,
-        brand: brand.trim() || undefined,
-        unit: unit || undefined,
         mrp: Number(mrp),
         cost: Number(cost) || undefined,
         sale: Number(sale) > 0 ? Number(sale) : undefined,
@@ -223,33 +222,6 @@ export default function AddProductPage() {
                     className="rounded text-blue-600 focus:ring-blue-500 w-3 h-3"
                   />
                   <span>Qty / Stock</span>
-                </label>
-                <label className="flex items-center space-x-1 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={showCategory}
-                    onChange={(e) => setShowCategory(e.target.checked)}
-                    className="rounded text-blue-600 focus:ring-blue-500 w-3 h-3"
-                  />
-                  <span>Category</span>
-                </label>
-                <label className="flex items-center space-x-1 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={showBrand}
-                    onChange={(e) => setShowBrand(e.target.checked)}
-                    className="rounded text-blue-600 focus:ring-blue-500 w-3 h-3"
-                  />
-                  <span>Brand</span>
-                </label>
-                <label className="flex items-center space-x-1 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={showUnit}
-                    onChange={(e) => setShowUnit(e.target.checked)}
-                    className="rounded text-blue-600 focus:ring-blue-500 w-3 h-3"
-                  />
-                  <span>Unit</span>
                 </label>
                 <label className="flex items-center space-x-1 cursor-pointer">
                   <input
@@ -354,7 +326,7 @@ export default function AddProductPage() {
               </div>
 
               <div>
-                <label className={labelClass}>Sale Price (₹) <span className="text-slate-400 font-normal">(Optional)</span></label>
+                <label className={labelClass}>Sale Price (₹) <span className="text-red-500">*</span></label>
                 <input
                   type="number"
                   value={sale || ""}
@@ -396,53 +368,25 @@ export default function AddProductPage() {
               </div>
             )}
 
-            {showCategory && (
-              <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 gap-3">
                 <div>
-                  <label className={labelClass}>Category</label>
+                  <label className={labelClass}>Category <span className="text-red-500">*</span></label>
                   <select
                     value={category}
                     onChange={(e) => setCategory(e.target.value)}
                     className={inputClass}
                   >
                     <option value="">Select category</option>
-                    <option>Men&apos;s Wear</option>
-                    <option>Women&apos;s Wear</option>
-                    <option>Kids Wear</option>
-                    <option>Sarees</option>
-                    <option>Innerwear</option>
-                    <option>Accessories</option>
-                    <option>Household</option>
-                    <option>Other</option>
-                  </select>
-                </div>
-                <div>
-                  <label className={labelClass}>Brand</label>
-                  <input
-                    type="text"
-                    value={brand}
-                    onChange={(e) => setBrand(e.target.value)}
-                    className={inputClass}
-                    placeholder="Enter brand name"
-                  />
-                </div>
-                <div>
-                  <label className={labelClass}>Unit</label>
-                  <select
-                    value={unit}
-                    onChange={(e) => setUnit(e.target.value)}
-                    className={inputClass}
-                  >
-                    <option value="">Select unit</option>
-                    <option>Pieces</option>
-                    <option>Pack</option>
-                    <option>Pair</option>
-                    <option>Set</option>
-                    <option>Metre</option>
+                    <option>ESSA</option>
+                    <option>GALAXY</option>
+                    <option>KOLKATA</option>
+                    <option>Stroberry</option>
+                    <option>SK Dreams</option>
+                    <option>Rupa Footline</option>
+                    <option>UR Image</option>
                   </select>
                 </div>
               </div>
-            )}
 
             {showTax && (
               <div className="grid grid-cols-2 gap-3">

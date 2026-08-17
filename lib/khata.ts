@@ -38,7 +38,7 @@ export type KhataData = {
   metrics: KhataMetrics;
 };
 
-function toEntries(raw: RawMap): Record<string, unknown>[] {
+export function toEntries(raw: RawMap): Record<string, unknown>[] {
   return raw ? Object.entries(raw).map(([id, value]) => ({ id, ...value })) : [];
 }
 

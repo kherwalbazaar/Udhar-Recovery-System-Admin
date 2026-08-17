@@ -370,26 +370,6 @@ export default function AddSalePage() {
                     className="w-full text-xs bg-white rounded-[7px] pl-9 pr-3 py-2.5 focus:outline-none animate-search-blink"
                   />
                 </div>
-
-                {search.trim() && filteredProducts.length > 0 && (
-                  <div className="absolute left-0 right-0 top-full mt-1 z-30 bg-white border border-slate-200 rounded-lg shadow-lg divide-y divide-slate-100 max-h-48 overflow-y-auto">
-                    {filteredProducts.slice(0, 8).map((p) => (
-                      <button
-                        key={p.name}
-                        type="button"
-                        onClick={() => addToCart(p)}
-                        className="w-full flex items-center justify-between px-3 py-2 hover:bg-blue-50 text-left"
-                      >
-                        <span className="text-xs font-medium text-slate-700">
-                          {p.name}
-                        </span>
-                        <span className="text-[10px] text-slate-400">
-                          {fmt(p.sale)}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                )}
               </div>
             </div>
 

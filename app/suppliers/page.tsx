@@ -3,10 +3,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { onValue, ref, push, set, update, remove } from "firebase/database";import {
   Users,
-  ArrowDown,
-  ArrowUp,
+  ArrowUpRight,
   Clock,
   Check,
+  Minus,
   Search,
   Filter,
   ChevronRight,
@@ -17,18 +17,19 @@ import { onValue, ref, push, set, update, remove } from "firebase/database";impo
   Trash2,
   X,
   Edit3,
+  ShoppingCart,
 } from "lucide-react";
 import AppShell from "@/components/AppShell";
 import { db } from "@/lib/firebase";
 import {
   buildSuppliers,
-  type KhataCustomer,
-  type KhataData,
-  type KhataMetrics,
-  type KhataTransaction,
+  supplierRunningBalances,
+  type Supplier,
+  type SupplierData,
+  type SupplierMetrics,
+  type SupplierTransaction,
   type RawMap,
 } from "@/lib/suppliers";
-import { runningBalances } from "@/lib/khata";
 
 const AVATAR_COLORS = [
   "bg-blue-600",
@@ -71,6 +72,13 @@ function formatTime(ts: number) {
   return `${hours}:${String(minutes).padStart(2, "0")} ${ampm}`;
 }
 
+function todayKey() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(
+    d.getDate()
+  ).padStart(2, "0")}`;
+}
+
 function titleCase(s: string) {
   if (!s) return "General";
   return s.charAt(0).toUpperCase() + s.slice(1);
@@ -84,6 +92,7 @@ type Metric = {
   bg: string;
   hoverBg: string;
   border: string;
+  materialIcon?: string;
 };
 
 function MetricCard({ metric }: { metric: Metric }) {
@@ -94,7 +103,13 @@ function MetricCard({ metric }: { metric: Metric }) {
     >
       <div className="flex items-center justify-center space-x-2">
         <div className="p-2 bg-white/20 text-white rounded-lg">
-          <Icon className="w-4 h-4" />
+          {metric.materialIcon ? (
+            <span className="font-['Material_Symbols_Outlined'] text-[24px] [font-variation-settings:'FILL'_0,'wght'_400,'GRAD'_0,'opsz'_24] select-none align-middle inline-block text-white">
+              {metric.materialIcon}
+            </span>
+          ) : (
+            <Icon className="w-4 h-4" />
+          )}
         </div>
         <span className="text-xs text-white/90 font-medium">
           {metric.label}
@@ -111,7 +126,7 @@ function MetricCard({ metric }: { metric: Metric }) {
 }
 
 export default function SuppliersPage() {
-  const [data, setData] = useState<KhataData | null>(null);
+  const [data, setData] = useState<SupplierData | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
@@ -125,10 +140,12 @@ export default function SuppliersPage() {
   const [entryForm, setEntryForm] = useState({
     details: "",
     amount: "",
+    date: "",
   });
   const [entryError, setEntryError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const [editTxn, setEditTxn] = useState<KhataTransaction | null>(null);
+  const [settleDate, setSettleDate] = useState("");
+  const [editTxn, setEditTxn] = useState<SupplierTransaction | null>(null);
   const [editForm, setEditForm] = useState({ itemName: "", amount: "" });
   const [editError, setEditError] = useState<string | null>(null);
   const [editSubmitting, setEditSubmitting] = useState(false);
@@ -161,26 +178,26 @@ export default function SuppliersPage() {
   }, []);
 
   useEffect(() => {
-    if (data && data.customers.length > 0 && !selectedId) {
-      setSelectedId(data.customers[0].id);
+    if (data && data.suppliers.length > 0 && !selectedId) {
+      setSelectedId(data.suppliers[0].id);
     }
   }, [data, selectedId]);
 
-  const selected: KhataCustomer | undefined = useMemo(
+  const selected: Supplier | undefined = useMemo(
     () =>
-      data?.customers.find((c) => c.id === selectedId) ?? data?.customers[0],
+      data?.suppliers.find((c) => c.id === selectedId) ?? data?.suppliers[0],
     [data, selectedId]
   );
 
   const balances = useMemo(
     () =>
       selected
-        ? runningBalances(selected.transactions)
+        ? supplierRunningBalances(selected.transactions)
         : new Map<string, number>(),
     [selected]
   );
 
-  const filtered = (data?.customers ?? []).filter((c) => {
+  const filtered = (data?.suppliers ?? []).filter((c) => {
     const q = search.trim().toLowerCase();
     return (
       !q ||
@@ -189,43 +206,45 @@ export default function SuppliersPage() {
     );
   });
 
-  const metrics: KhataMetrics | null = data?.metrics ?? null;
+  const metrics: SupplierMetrics | null = data?.metrics ?? null;
   const metricCards: Metric[] = [
     {
       label: "Total Supplier",
-      value: String(metrics?.totalCustomers ?? "—"),
+      value: String(metrics?.totalSuppliers ?? "—"),
       icon: Users,
       bg: "bg-red-500",
       hoverBg: "hover:bg-red-600",
       border: "border-red-700",
     },
     {
-      label: "You will Give",
-      value: metrics ? fmtMoney(metrics.giveBack) : "—",
-      icon: ArrowDown,
-      bg: "bg-emerald-500",
-      hoverBg: "hover:bg-emerald-600",
-      border: "border-emerald-700",
-    },
-    {
-      label: "You will Get",
-      value: metrics ? fmtMoney(metrics.totalDue) : "—",
-      icon: ArrowUp,
+      label: "Purchase",
+      value: metrics ? fmtMoney(metrics.totalPurchase) : "—",
+      icon: ShoppingCart,
+      materialIcon: "add_shopping_cart",
       bg: "bg-red-500",
       hoverBg: "hover:bg-red-600",
       border: "border-red-700",
     },
     {
-      label: "Overdue",
-      value: String(metrics?.overdueCount ?? "—"),
+      label: "Payment",
+      value: metrics ? fmtMoney(metrics.totalPaid) : "—",
+      icon: ArrowUpRight,
+      materialIcon: "arrow_outward",
+      bg: "bg-emerald-500",
+      hoverBg: "hover:bg-emerald-600",
+      border: "border-emerald-700",
+    },
+    {
+      label: "Due Suppliers",
+      value: String(metrics?.dueSuppliers ?? "—"),
       icon: Clock,
       bg: "bg-purple-500",
       hoverBg: "hover:bg-purple-600",
       border: "border-purple-700",
     },
     {
-      label: "Paid",
-      value: String(metrics?.paidCount ?? "—"),
+      label: "Settled",
+      value: String(metrics?.settledSuppliers ?? "—"),
       icon: Check,
       bg: "bg-blue-500",
       hoverBg: "hover:bg-blue-600",
@@ -248,11 +267,7 @@ export default function SuppliersPage() {
     setSubmitting(true);
     setEntryError(null);
     try {
-      const date = new Date();
-      const y = date.getFullYear();
-      const m = String(date.getMonth() + 1).padStart(2, "0");
-      const day = String(date.getDate()).padStart(2, "0");
-      const dateKey = `${y}-${m}-${day}`;
+      const dateKey = entryForm.date || todayKey();
       const createdAt = Date.now();
       const txnKey = push(
         ref(db, `suppliers/${selected.id}/transactions`)
@@ -262,14 +277,14 @@ export default function SuppliersPage() {
           amount,
           itemName: details,
           date: dateKey,
-          type: "gave",
+          type: "purchase",
           createdAt,
         },
         [`suppliers/${selected.id}/totalAmount`]:
           (selected.totalAmount ?? 0) + amount,
       };
       await update(ref(db), updates);
-      setEntryForm({ details: "", amount: "" });
+      setEntryForm({ details: "", amount: "", date: "" });
       setEntryOpen(false);
     } catch (e) {
       setEntryError(e instanceof Error ? e.message : "Failed to save entry.");
@@ -288,11 +303,7 @@ export default function SuppliersPage() {
     setSettleSubmitting(true);
     setSettleError(null);
     try {
-      const date = new Date();
-      const y = date.getFullYear();
-      const m = String(date.getMonth() + 1).padStart(2, "0");
-      const day = String(date.getDate()).padStart(2, "0");
-      const dateKey = `${y}-${m}-${day}`;
+      const dateKey = settleDate || todayKey();
       const createdAt = Date.now();
       const txnKey = push(
         ref(db, `suppliers/${selected.id}/transactions`)
@@ -302,7 +313,7 @@ export default function SuppliersPage() {
         amount,
         itemName: settleDesc.trim() || "Settlement Payment",
         date: dateKey,
-        type: "got",
+        type: "payment",
         createdAt,
       };
       updates[`suppliers/${selected.id}/totalAmount`] =
@@ -310,6 +321,7 @@ export default function SuppliersPage() {
       await update(ref(db), updates);
       setSettleAmount("");
       setSettleDesc("");
+      setSettleDate("");
       setSettleOpen(false);
     } catch (e) {
       setSettleError(
@@ -351,7 +363,7 @@ export default function SuppliersPage() {
     }
   };
 
-  const openEdit = (t: KhataTransaction) => {
+  const openEdit = (t: SupplierTransaction) => {
     setEditTxn(t);
     setEditForm({ itemName: t.itemName, amount: String(t.amount) });
     setEditError(null);
@@ -516,7 +528,8 @@ export default function SuppliersPage() {
                 )}
                 {filtered.map((c) => {
                   const active = selected?.id === c.id;
-                  const due = c.balance > 0;
+                  const give = c.balance > 0;
+                  const advance = c.balance < 0;
                   return (
                     <button
                       key={c.id}
@@ -553,13 +566,17 @@ export default function SuppliersPage() {
                         <div>
                           <p
                             className={`text-xs font-bold ${
-                              due ? "text-red-500" : "text-emerald-600"
+                              give ? "text-red-500" : "text-emerald-600"
                             }`}
                           >
-                            ₹{fmt(c.balance)}
+                            ₹{fmt(Math.abs(c.balance))}
                           </p>
                           <p className="text-[9px] text-slate-400">
-                            {due ? "Due" : "Paid"}
+                            {give
+                              ? "Due"
+                              : advance
+                              ? "Advance Paid"
+                              : "Settled"}
                           </p>
                         </div>
                         <ChevronRight
@@ -617,8 +634,8 @@ export default function SuppliersPage() {
                       }}
                       className="text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-lg px-3 py-2 flex items-center space-x-1.5 transition-colors"
                     >
-                      <Check className="w-3.5 h-3.5" />
-                      <span>Settle</span>
+                      <Minus className="w-3.5 h-3.5" />
+                      <span>Payment</span>
                     </button>
                     <button
                       type="button"
@@ -629,18 +646,18 @@ export default function SuppliersPage() {
                       className="text-xs bg-red-600 hover:bg-red-700 text-white font-semibold rounded-lg px-3 py-2 flex items-center space-x-1.5 transition-colors"
                     >
                       <Plus className="w-3.5 h-3.5" />
-                      <span>Entry</span>
+                      <span>Purchase</span>
                     </button>
                   </div>
 
                   <div className="bg-white p-4 mt-0 space-y-2 text-xs">
                     <div className="grid grid-cols-2 gap-2">
-                      <div className="bg-red-50 border border-red-100 rounded-lg p-2 text-center">
-                        <p className="text-[10px] text-red-500 font-medium">
-                          Total Udhar
+                      <div className="bg-blue-50 border border-blue-100 rounded-lg p-2 text-center">
+                        <p className="text-[10px] text-blue-600 font-medium">
+                          Total Purchase
                         </p>
-                        <p className="text-sm font-bold text-red-500">
-                          {fmtMoney(selected.balance)}
+                        <p className="text-sm font-bold text-blue-600">
+                          {fmtMoney(selected.totalPurchase)}
                         </p>
                       </div>
                       <div className="bg-emerald-50 border border-emerald-100 rounded-lg p-2 text-center">
@@ -648,24 +665,28 @@ export default function SuppliersPage() {
                           Total Paid
                         </p>
                         <p className="text-sm font-bold text-emerald-600">
-                          {fmtMoney(selected.got)}
+                          {fmtMoney(selected.totalPaid)}
                         </p>
                       </div>
-                      <div className="bg-blue-50 border border-blue-100 rounded-lg p-2 text-center">
-                        <p className="text-[10px] text-blue-600 font-medium">
-                          Total Purchase
+                      <div className="bg-red-50 border border-red-100 rounded-lg p-2 text-center">
+                        <p className="text-[10px] text-red-500 font-medium">
+                          You will Give
                         </p>
-                        <p className="text-sm font-bold text-blue-600">
-                          {fmtMoney(selected.gave)}
+                        <p className="text-sm font-bold text-red-500">
+                          {selected.balance > 0
+                            ? fmtMoney(selected.balance)
+                            : "—"}
                         </p>
                       </div>
                       <div className="bg-purple-50 border border-purple-100 rounded-lg p-2 text-center">
                         <p className="text-[10px] text-purple-600 font-medium">
-                          Balance
+                          {selected.balance < 0 ? "Advance Paid" : "Net Balance"}
                         </p>
                         <p className="text-sm font-bold text-purple-600">
                           {selected.balance < 0
-                            ? `₹${fmtMoney(-selected.balance)}`
+                            ? fmtMoney(-selected.balance)
+                            : selected.balance === 0
+                            ? "Settled"
                             : fmtMoney(selected.balance)}
                         </p>
                       </div>
@@ -743,13 +764,13 @@ export default function SuppliersPage() {
                           </tr>
                         )}
                         {selected.transactions.map((t) => {
-                          const isSale = t.type === "gave";
+                          const isPurchase = t.type === "purchase";
                           const running = balances.get(t.id) ?? 0;
                           return (
                             <tr
                               key={t.id}
                               className={
-                                isSale
+                                isPurchase
                                   ? "bg-red-50/50"
                                   : "bg-emerald-50/50"
                               }
@@ -764,12 +785,12 @@ export default function SuppliersPage() {
                               <td className="py-2.5 text-center">
                                 <span
                                   className={`inline-block px-2 py-0.5 rounded text-[10px] font-medium ${
-                                    isSale
+                                    isPurchase
                                       ? "bg-blue-50 text-blue-600"
                                       : "bg-emerald-50 text-emerald-600"
                                   }`}
                                 >
-                                  {isSale ? "Sale" : "Payment"}
+                                  {isPurchase ? "Purchase" : "Payment"}
                                 </span>
                               </td>
                               <td className="py-2.5 text-slate-800 font-medium text-center truncate px-2">
@@ -777,13 +798,23 @@ export default function SuppliersPage() {
                               </td>
                               <td
                                 className={`py-2.5 text-center font-semibold ${
-                                  isSale ? "text-red-500" : "text-emerald-600"
+                                  isPurchase
+                                    ? "text-red-500"
+                                    : "text-emerald-600"
                                 }`}
                               >
-                                {isSale ? fmt(t.amount) : `+${fmt(t.amount)}`}
+                                {isPurchase ? fmt(t.amount) : `+${fmt(t.amount)}`}
                               </td>
-                              <td className="py-2.5 text-center font-bold text-red-500">
-                                {fmt(running)}
+                              <td
+                                className={`py-2.5 text-center font-bold ${
+                                  running > 0
+                                    ? "text-red-500"
+                                    : running < 0
+                                    ? "text-emerald-600"
+                                    : "text-slate-400"
+                                }`}
+                              >
+                                {fmt(Math.abs(running))}
                               </td>
                               <td className="py-2.5 text-center">
                                 <button
@@ -852,7 +883,7 @@ export default function SuppliersPage() {
           <div className="bg-white rounded-xl w-full max-w-sm shadow-xl">
             <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
               <h3 className="text-sm font-bold text-slate-800">
-                Add Entry — {selected?.name}
+                Add Purchase — {selected?.name}
               </h3>
               <button
                 type="button"
@@ -865,6 +896,19 @@ export default function SuppliersPage() {
             </div>
 
             <div className="p-4 space-y-3">
+              <div>
+                <label className="text-[11px] text-slate-500 font-medium">
+                  Date
+                </label>
+                <input
+                  type="date"
+                  value={entryForm.date || todayKey()}
+                  onChange={(e) =>
+                    setEntryForm((f) => ({ ...f, date: e.target.value }))
+                  }
+                  className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 mt-1 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                />
+              </div>
               <div>
                 <label className="text-[11px] text-slate-500 font-medium">
                   Amount (₹)
@@ -904,7 +948,7 @@ export default function SuppliersPage() {
                 disabled={submitting}
                 className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-semibold text-xs py-2.5 rounded-lg"
               >
-                {submitting ? "Saving..." : "Submit Entry"}
+                {submitting ? "Saving..." : "Save Purchase"}
               </button>
             </div>
           </div>
@@ -916,7 +960,7 @@ export default function SuppliersPage() {
           <div className="bg-white rounded-xl w-full max-w-sm shadow-xl">
             <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
               <h3 className="text-sm font-bold text-slate-800">
-                Settle Payment — {selected?.name}
+                Payment — {selected?.name}
               </h3>
               <button
                 type="button"
@@ -929,6 +973,17 @@ export default function SuppliersPage() {
             </div>
 
             <div className="p-4 space-y-3">
+              <div>
+                <label className="text-[11px] text-slate-500 font-medium">
+                  Date
+                </label>
+                <input
+                  type="date"
+                  value={settleDate || todayKey()}
+                  onChange={(e) => setSettleDate(e.target.value)}
+                  className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 mt-1 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                />
+              </div>
               <div>
                 <label className="text-[11px] text-slate-500 font-medium">
                   Amount (₹)
@@ -964,7 +1019,7 @@ export default function SuppliersPage() {
                 disabled={settleSubmitting}
                 className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-semibold text-xs py-2.5 rounded-lg"
               >
-                {settleSubmitting ? "Saving..." : "Settlement"}
+                {settleSubmitting ? "Saving..." : "Save Payment"}
               </button>
             </div>
           </div>

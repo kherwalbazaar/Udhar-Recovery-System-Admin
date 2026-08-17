@@ -30,3 +30,11 @@ next-env.d.ts
 # Firebase analytics / secrets
 .env
 .env.local
+
+# electron build output
+/dist-electron/
+/release-builds/
+/dist/
+*.exe
+*.blockmap
+*.yml

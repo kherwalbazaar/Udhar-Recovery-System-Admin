@@ -11,6 +11,7 @@ import {
   Bell,
   Settings,
   CheckCircle,
+  Truck,
 } from "lucide-react";
 
 const navItems = [
@@ -18,6 +19,7 @@ const navItems = [
   { label: "Products", icon: Package, href: "/products" },
   { label: "Sales", icon: ShoppingCart, href: "/sales" },
   { label: "Khata (Customers)", icon: Users, href: "/customers" },
+  { label: "Suppliers", icon: Truck, href: "/suppliers" },
   { label: "Cash Book", icon: BookOpen, href: "/cashbook" },
   { label: "Collection", icon: Wallet, href: "#" },
   { label: "Expenses", icon: Receipt, href: "#" },

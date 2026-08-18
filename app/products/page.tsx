@@ -181,10 +181,10 @@ export default function AddProductPage() {
   };
 
   return (
-    <AppShell title="" active="Products">
+    <AppShell title="" active="Add Product">
       {/* Page title + action */}
       <div className="flex items-center justify-between">
-        <h1 className="text-xl font-bold text-slate-800">Products</h1>
+        <h1 className="text-xl font-bold text-slate-800">Add Product</h1>
 
         <a
           href="/products/all"

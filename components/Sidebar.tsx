@@ -8,6 +8,7 @@ import {
   TrendingUp,
   BarChart2,
   Package,
+  Boxes,
   Bell,
   Settings,
   CheckCircle,
@@ -16,8 +17,10 @@ import {
 
 const navItems = [
   { label: "Dashboard", icon: Home, href: "/" },
-  { label: "Products", icon: Package, href: "/products" },
+  { label: "Add Product", icon: Package, href: "/products" },
+  { label: "All Product", icon: Boxes, href: "/products/all" },
   { label: "Sales", icon: ShoppingCart, href: "/sales" },
+  { label: "Sale Report", icon: BarChart2, href: "/sales-report" },
   { label: "Khata (Customers)", icon: Users, href: "/customers" },
   { label: "Suppliers", icon: Truck, href: "/suppliers" },
   { label: "Cash Book", icon: BookOpen, href: "/cashbook" },

@@ -168,7 +168,7 @@ export default function AllProductsPage() {
   };
 
   return (
-    <AppShell title="All Products" active="Products">
+    <AppShell title="All Products" active="All Product">
       <div className="flex items-center justify-between">
         <a
           href="/products"

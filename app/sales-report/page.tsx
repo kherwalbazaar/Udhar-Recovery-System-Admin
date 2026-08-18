@@ -210,7 +210,7 @@ export default function SalesReportPage() {
   };
 
   return (
-    <AppShell title="Sales Report" active="Sales">
+    <AppShell title="Sales Report" active="Sale Report">
       {/* PAGE TITLE */}
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-bold text-slate-800">Sales Report</h1>

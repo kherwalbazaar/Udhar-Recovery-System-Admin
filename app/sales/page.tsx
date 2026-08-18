@@ -107,8 +107,8 @@ export default function AddSalePage() {
   const payable = Math.max(0, subtotal - discount);
 
   useEffect(() => {
-    if (!receivedTouched) setReceived(payable);
-  }, [payable, receivedTouched]);
+    if (!receivedTouched) setReceived(selectedCustomer ? 0 : payable);
+  }, [payable, receivedTouched, selectedCustomer]);
 
   const addToCart = (product: Product) => {
     const price = priceInputs[product.name] ?? product.sale;
@@ -228,8 +228,9 @@ export default function AddSalePage() {
           sale: i.sale,
           qty: i.qty,
         })),
-        saleType: "cash",
+        saleType: selectedCustomer ? "credit" : "cash",
         customer: selectedCustomer,
+        received,
       });
       setSubmitted(true);
       setCart([]);

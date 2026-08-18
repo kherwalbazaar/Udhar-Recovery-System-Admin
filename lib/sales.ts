@@ -31,6 +31,7 @@ export type RecentSaleRow = {
 };
 
 export type ProductSaleRow = {
+  id: string;
   product: string;
   mrp: number;
   sale: number;
@@ -170,6 +171,7 @@ export function buildProductSalesReport(
           : mrp / 2;
       const profit = sale - unitCost * quantity;
       return {
+        id: String(s.id ?? ""),
         product,
         mrp,
         sale,

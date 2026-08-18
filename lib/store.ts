@@ -122,9 +122,10 @@ export async function submitSale(params: {
   items: { name: string; mrp: number; sale: number; qty: number }[];
   saleType: "cash" | "credit";
   customer?: CustomerSummary | null;
+  received?: number;
   note?: string;
 }): Promise<void> {
-  const { items, saleType, customer, note } = params;
+  const { items, saleType, customer, received, note } = params;
   if (items.length === 0) return;
 
   const date = toDateKey(new Date());
@@ -160,8 +161,21 @@ export async function submitSale(params: {
         createdAt,
       };
     }
+    let balanceDelta = creditTotal;
+    const receivedAmount = Number(received) || 0;
+    if (receivedAmount > 0) {
+      const settleKey = push(ref(db, `customers/${customer.id}/transactions`)).key;
+      updates[`customers/${customer.id}/transactions/${settleKey}`] = {
+        amount: receivedAmount,
+        itemName: "Settle",
+        date,
+        type: "got",
+        createdAt,
+      };
+      balanceDelta -= receivedAmount;
+    }
     updates[`customers/${customer.id}/totalAmount`] =
-      (customer.totalAmount ?? 0) + creditTotal;
+      (customer.totalAmount ?? 0) + balanceDelta;
   }
 
   await update(ref(db), updates);

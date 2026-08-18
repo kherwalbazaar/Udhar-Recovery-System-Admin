@@ -467,29 +467,35 @@ export default function KhataPage() {
                       key={c.id}
                       type="button"
                       onClick={() => setSelectedId(c.id)}
-                      className={`w-full border rounded-lg p-2.5 flex items-center justify-between cursor-pointer text-left ${
+                      className={`w-full border rounded-lg p-2.5 flex items-center justify-between cursor-pointer text-left transition-colors ${
                         active
-                          ? "bg-blue-50/70 border-blue-200"
+                          ? "bg-blue-600 border-blue-600 shadow-sm"
                           : "border-slate-100 hover:bg-slate-50"
                       }`}
                     >
                       <div className="flex items-center space-x-2.5">
                         <span
-                          className={`w-8 h-8 rounded-full ${colorFor(
-                            c.name
-                          )} text-white text-xs flex items-center justify-center font-bold`}
+                          className={`w-8 h-8 rounded-full ${
+                            active ? "bg-white/20" : colorFor(c.name)
+                          } text-white text-xs flex items-center justify-center font-bold`}
                         >
                           {initialsFor(c.name)}
                         </span>
                         <div>
                           <p
                             className={`text-xs ${
-                              active ? "font-bold" : "font-semibold"
-                            } text-slate-800`}
+                              active
+                                ? "font-bold text-white"
+                                : "font-semibold text-slate-800"
+                            }`}
                           >
                             {c.name}
                           </p>
-                          <p className="text-[10px] text-slate-400">
+                          <p
+                            className={`text-[10px] ${
+                              active ? "text-blue-100" : "text-slate-400"
+                            }`}
+                          >
                             {c.phone}
                           </p>
                         </div>
@@ -498,18 +504,26 @@ export default function KhataPage() {
                         <div>
                           <p
                             className={`text-xs font-bold ${
-                              due ? "text-red-500" : "text-emerald-600"
+                              active
+                                ? "text-white"
+                                : due
+                                ? "text-red-500"
+                                : "text-emerald-600"
                             }`}
                           >
                             ₹{fmt(c.balance)}
                           </p>
-                          <p className="text-[9px] text-slate-400">
+                          <p
+                            className={`text-[9px] ${
+                              active ? "text-blue-100" : "text-slate-400"
+                            }`}
+                          >
                             {due ? "Due" : "Paid"}
                           </p>
                         </div>
                         <ChevronRight
                           className={`w-3.5 h-3.5 ${
-                            active ? "text-blue-500" : "text-slate-300"
+                            active ? "text-white" : "text-slate-300"
                           }`}
                         />
                       </div>

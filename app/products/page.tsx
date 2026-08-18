@@ -384,6 +384,7 @@ export default function AddProductPage() {
                     <option>SK Dreams</option>
                     <option>Rupa Footline</option>
                     <option>UR Image</option>
+                    <option>LUX</option>
                   </select>
                 </div>
               </div>

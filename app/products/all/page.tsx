@@ -309,7 +309,7 @@ export default function AllProductsPage() {
 
       {editing && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl border border-slate-200 shadow-2xl w-full max-w-lg space-y-4">
+          <div className="bg-pink-50 rounded-xl border border-pink-200 shadow-2xl w-full max-w-lg space-y-4">
             <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
               <h3 className="text-xs font-bold text-slate-800">Edit Product</h3>
               <button
@@ -437,7 +437,7 @@ export default function AllProductsPage() {
                   <button
                     type="button"
                     onClick={closeEdit}
-                    className="px-4 py-2 border border-slate-200 text-slate-600 hover:bg-slate-50 text-xs font-semibold rounded-lg"
+                    className="px-4 py-2 bg-white border border-pink-300 text-pink-700 hover:bg-pink-100 text-xs font-semibold rounded-lg shadow-sm"
                   >
                     Cancel
                   </button>
@@ -445,7 +445,7 @@ export default function AllProductsPage() {
                     type="button"
                     onClick={handleUpdate}
                     disabled={saving}
-                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-lg flex items-center space-x-1.5 disabled:opacity-50"
+                    className="px-4 py-2 bg-pink-600 hover:bg-pink-700 text-white text-xs font-semibold rounded-lg flex items-center space-x-1.5 disabled:opacity-50 shadow-sm"
                   >
                     <Check className="w-3.5 h-3.5" />
                     <span>{saving ? "Saving..." : "Update"}</span>

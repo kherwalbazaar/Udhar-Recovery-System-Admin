@@ -259,13 +259,96 @@ export default function AddSalePage() {
     }
   };
 
-  const filteredProducts = products.filter((p) =>
-    p.name.toLowerCase().includes(search.trim().toLowerCase())
-  );
+  const filteredProducts = (() => {
+    const q = search.trim().toLowerCase().replace(/\s+/g, " ");
+    if (!q) return products;
+    const qWords = q.split(" ").filter(Boolean);
+    const isSingleConcatenatedInitials = qWords.length === 1 && q.length <= 5;
+    return products.filter((p) => {
+      const words = p.name.toLowerCase().split(/\s+/).filter(Boolean);
+      const initials = words.map((w) => w[0]).join("");
+      if (words.some((w) => w.startsWith(q))) return true;
+      if (qWords.length > 1) {
+        if (qWords.length > words.length) return false;
+        return qWords.every((qw, i) => words[i].startsWith(qw));
+      }
+      if (isSingleConcatenatedInitials) {
+        if (initials.startsWith(q)) return true;
+        if (initials.includes(q)) return words.some((w) => w.startsWith(q));
+      }
+      return false;
+    });
+  })();
 
   const visibleProducts = search.trim()
     ? filteredProducts
     : filteredProducts.slice(0, 10);
+
+  const renderHighlightedSaleName = (productName: string) => {
+    const q = search.trim().toLowerCase().replace(/\s+/g, " ");
+    if (!q) return <>{productName}</>;
+    const qWords = q.split(" ").filter(Boolean);
+    const words = productName.split(/\s+/);
+    const lowerWords = words.map((w) => w.toLowerCase());
+    const initials = lowerWords.map((w) => w[0]).join("");
+    const hl = (word: string, len: number) => {
+      if (len <= 0 || len > word.length) return <>{word}</>;
+      return (
+        <>
+          <span className="bg-yellow-200 font-bold text-blue-700">{word.slice(0, len)}</span>
+          {word.slice(len)}
+        </>
+      );
+    };
+    if (qWords.length > 1) {
+      return (
+        <>
+          {words.map((w, i) => (
+            <span key={i}>
+              {i > 0 ? " " : ""}
+              {i < qWords.length && lowerWords[i].startsWith(qWords[i]) ? hl(w, qWords[i].length) : w}
+            </span>
+          ))}
+        </>
+      );
+    }
+    if (qWords.length === 1 && q.length > 1 && initials.startsWith(q) && q.length === words.length) {
+      return (
+        <>
+          {words.map((w, i) => (
+            <span key={i}>
+              {i > 0 ? " " : ""}
+              {i < q.length ? hl(w, 1) : w}
+            </span>
+          ))}
+        </>
+      );
+    }
+    const qw = qWords[0];
+    let highlighted = false;
+    return (
+      <>
+        {words.map((w, i) => {
+          const lw = lowerWords[i];
+          if (!highlighted && lw.startsWith(qw)) {
+            highlighted = true;
+            return (
+              <span key={i}>
+                {i > 0 ? " " : ""}
+                {hl(w, qw.length)}
+              </span>
+            );
+          }
+          return (
+            <span key={i}>
+              {i > 0 ? " " : ""}
+              {w}
+            </span>
+          );
+        })}
+      </>
+    );
+  };
 
   const chip = (name: string) => name.charAt(0).toUpperCase();
 
@@ -450,7 +533,7 @@ export default function AddSalePage() {
                         className="cursor-pointer hover:bg-blue-50 transition-colors"
                       >
                         <td className="py-2 px-2 font-medium text-slate-800 truncate">
-                          {p.name}
+                          {renderHighlightedSaleName(p.name)}
                         </td>
                         <td className="py-2 px-2 text-slate-600 text-right">
                           {fmt(p.mrp)}

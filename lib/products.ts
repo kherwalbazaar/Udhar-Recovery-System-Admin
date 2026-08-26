@@ -66,9 +66,13 @@ export async function fetchAllProducts(): Promise<ProductRecord[]> {
     .map((r) => ({
       name: String(r.name ?? ""),
       barcode: r.barcode ? String(r.barcode) : undefined,
+      category: r.category ? String(r.category) : undefined,
       mrp: Number(r.mrp ?? 0),
       cost: r.cost != null ? Number(r.cost) : undefined,
       sale: r.sale != null ? Number(r.sale) : undefined,
+      tax: r.tax != null ? Number(r.tax) : undefined,
+      discount: r.discount != null ? Number(r.discount) : undefined,
+      stock: r.stock != null ? Number(r.stock) : undefined,
       active: Boolean(r.active ?? true),
       trackStock: Boolean(r.trackStock ?? true),
       createdAt: Number(r.createdAt ?? 0),

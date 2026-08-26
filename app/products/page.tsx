@@ -18,6 +18,7 @@ import {
   saveProduct,
   updateProduct,
   fetchRecentProducts,
+  fetchAllProducts,
   type ProductRecord,
   type RecentProduct,
 } from "@/lib/products";
@@ -62,10 +63,15 @@ export default function AddProductPage() {
   const [error, setError] = useState<string | null>(null);
   const [recent, setRecent] = useState<RecentProduct[]>([]);
   const [editingName, setEditingName] = useState<string | null>(null);
+  const [allNames, setAllNames] = useState<string[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
 
   useEffect(() => {
     fetchRecentProducts()
       .then(setRecent)
+      .catch(() => {});
+    fetchAllProducts()
+      .then((all) => setAllNames(all.map((p) => p.name)))
       .catch(() => {});
   }, []);
 
@@ -245,17 +251,50 @@ export default function AddProductPage() {
             </div>
 
             <div className="grid grid-cols-3 gap-3">
-              <div>
+              <div className="relative">
                 <label className={labelClass}>
                   Product Name <span className="text-red-500">*</span>
                 </label>
                 <input
                   type="text"
                   value={name}
-                  onChange={(e) => setName(e.target.value)}
+                  onChange={(e) => {
+                    setName(e.target.value);
+                    setShowSuggestions(true);
+                  }}
+                  onFocus={() => setShowSuggestions(true)}
+                  onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
                   placeholder="Enter product name"
                   className={inputClass}
+                  autoComplete="off"
                 />
+                {showSuggestions &&
+                  name.trim().length > 0 &&
+                  (() => {
+                    const q = name.trim().toLowerCase();
+                    const matches = allNames
+                      .filter((n) => n.toLowerCase().includes(q) && n.toLowerCase() !== q)
+                      .slice(0, 6);
+                    if (matches.length === 0) return null;
+                    return (
+                      <div className="absolute z-20 left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg max-h-40 overflow-y-auto">
+                        {matches.map((m) => (
+                          <button
+                            key={m}
+                            type="button"
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={() => {
+                              setName(m);
+                              setShowSuggestions(false);
+                            }}
+                            className="w-full text-left px-3 py-2 text-xs hover:bg-blue-50 text-slate-700 truncate"
+                          >
+                            {m}
+                          </button>
+                        ))}
+                      </div>
+                    );
+                  })()}
               </div>
 
               <div>

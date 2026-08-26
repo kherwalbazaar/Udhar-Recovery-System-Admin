@@ -388,6 +388,7 @@ export default function AddProductPage() {
                     <option>Lungi</option>
                     <option>Saree</option>
                     <option>Half Pants</option>
+                    <option>Ganji</option>
                   </select>
                 </div>
               </div>

@@ -155,11 +155,21 @@ export function onValueWithCache(
 
 /**
  * Trigger background refresh for all cached paths.
- * Called by Header refresh icon (manual + auto 10s).
+ * Called by Header refresh icon (manual).
  * Emits event that cached listeners use to fetch latest in background while
  * UI continues showing stale cache instantly.
  */
 export function triggerBackgroundRefresh() {
   if (typeof window === "undefined") return;
   window.dispatchEvent(new CustomEvent("udhar:refresh"));
+}
+
+/**
+ * Trigger refresh only after an action (add/update/delete).
+ * Header listens to this and does a cached reload.
+ * No periodic auto-refresh - only this.
+ */
+export function triggerActionRefresh() {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new CustomEvent("udhar:action-refresh"));
 }

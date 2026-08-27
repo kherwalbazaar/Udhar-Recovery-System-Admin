@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { ref, push, update } from "firebase/database";
-import { onValueWithCache, CACHE_KEYS } from "@/lib/cache";import {
+import { onValueWithCache, CACHE_KEYS, triggerActionRefresh } from "@/lib/cache";import {
   Users,
   ArrowDown,
   ArrowUp,
@@ -279,6 +279,7 @@ export default function KhataPage() {
       updates[`customers/${selected.id}/totalAmount`] =
         (selected.totalAmount ?? 0) + creditTotal;
       await update(ref(db), updates);
+      triggerActionRefresh();
       setEntryItems([]);
       setEntryOpen(false);
     } catch (e) {
@@ -318,6 +319,7 @@ export default function KhataPage() {
       updates[`customers/${selected.id}/totalAmount`] =
         (selected.totalAmount ?? 0) - amount;
       await update(ref(db), updates);
+      triggerActionRefresh();
       setSettleAmount("");
       setSettleDesc("");
       setSettleOpen(false);
@@ -358,6 +360,7 @@ export default function KhataPage() {
       updates[`customers/${selected.id}/transactions/${editTxn.id}/amount`] =
         amount;
       await update(ref(db), updates);
+      triggerActionRefresh();
       setEditTxn(null);
     } catch (e) {
       setEditError(

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { ref, update, push } from "firebase/database";
-import { onValueWithCache, CACHE_KEYS } from "@/lib/cache";
+import { onValueWithCache, CACHE_KEYS, triggerActionRefresh } from "@/lib/cache";
 import {
   Bell,
   Users,
@@ -133,6 +133,7 @@ export default function RemindersPage() {
     try {
       const customer = customers.find((c) => c.id === id);
       await update(ref(db, `customers/${id}`), { reminderDate: date });
+      triggerActionRefresh();
       if (customer) {
         await push(ref(db, "reminders"), {
           customerId: customer.id,

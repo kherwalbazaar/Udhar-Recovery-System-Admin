@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { ref, update, remove } from "firebase/database";
-import { onValueWithCache, CACHE_KEYS } from "@/lib/cache";
+import { onValueWithCache, CACHE_KEYS, triggerActionRefresh } from "@/lib/cache";
 import {
   Search,
   Calendar,
@@ -189,6 +189,7 @@ export default function SalesReportPage() {
         quantity,
         sale: salePrice * quantity,
       });
+      triggerActionRefresh();
       setEditing(null);
     } catch (e) {
       setActionError(
@@ -203,6 +204,7 @@ export default function SalesReportPage() {
     if (!window.confirm(`Delete sale entry for "${row.product}"?`)) return;
     try {
       await remove(ref(db, `sales/${row.id}`));
+      triggerActionRefresh();
     } catch (e) {
       setActionError(
         e instanceof Error ? e.message : "Failed to delete sale entry."

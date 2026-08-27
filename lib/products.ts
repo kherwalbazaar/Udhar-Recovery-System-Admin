@@ -1,6 +1,6 @@
 import { ref, set, update, remove } from "firebase/database";
 import { db } from "./firebase";
-import { getWithCache, CACHE_KEYS } from "./cache";
+import { getWithCache, CACHE_KEYS, triggerActionRefresh } from "./cache";
 import { get as firebaseGet } from "firebase/database";
 
 export type ProductRecord = {
@@ -56,6 +56,7 @@ export async function saveProduct(
     }
   }
   await set(ref(db, `products/${p.name}`), sanitizeRecord(p));
+  if (typeof window !== "undefined") triggerActionRefresh();
 }
 
 export async function fetchAllProducts(): Promise<ProductRecord[]> {
@@ -188,10 +189,12 @@ export async function updateProduct(
   };
   updates[`products/${p.name}`] = sanitizeRecord(p);
   await update(ref(db), updates);
+  if (typeof window !== "undefined") triggerActionRefresh();
 }
 
 export async function deleteProduct(name: string): Promise<void> {
   await remove(ref(db, `products/${name}`));
+  if (typeof window !== "undefined") triggerActionRefresh();
 }
 
 export async function fetchRecentProducts(): Promise<RecentProduct[]> {

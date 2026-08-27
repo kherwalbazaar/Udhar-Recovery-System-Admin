@@ -9,89 +9,27 @@ export default function Header({ title: _title = "Dashboard" }: { title?: string
 
   const handleRefresh = useCallback(() => {
     setIsSpinning(true);
-    // soft refresh: show cached instantly, fetch latest in background
+    // show cached instantly, fetch latest in background (stale-while-revalidate)
     triggerBackgroundRefresh();
-    // also do hard reload fallback for pages using one-time get (ensures fresh via cache)
-    // keep window reload optional - comment out to keep fully soft
     setTimeout(() => {
-      // dispatch already triggered background fetch via onValueWithCache listeners
-      // keep hard reload for full revalidation but instant due to cache
       window.location.reload();
     }, 400);
   }, []);
 
-  const shouldDeferRefresh = useCallback(() => {
-    // Returns true if user is filling/updating -> auto-refresh should be SKIPPED
-    // 1. Tab not visible -> skip
-    if (typeof document !== "undefined" && document.visibilityState !== "visible") return true;
-    // 2. If any modal/dialog is open (all add/update modals use fixed inset-0) -> filling in modal
-    if (document.querySelector(".fixed.inset-0")) return true;
-    // 3. If any submit is in progress (button shows Saving/Updating) -> updating
-    const disabledButtons = document.querySelectorAll("button[disabled]");
-    for (const btn of Array.from(disabledButtons)) {
-      const t = (btn.textContent || "").toLowerCase();
-      if (t.includes("saving") || t.includes("updating") || t.includes("submitting") || t.includes("adding") || t.includes("deleting")) {
-        return true;
-      }
-    }
-    // 4. If any form field has unsaved data (user is filling) -> skip auto-refresh
-    // Check all inputs/textareas except search/filter fields
-    const inputs = document.querySelectorAll("input, textarea, select");
-    for (const el of Array.from(inputs) as HTMLInputElement[]) {
-      if (el.type === "hidden") continue;
-      // skip search/filter inputs (they shouldn't block auto-refresh)
-      const ph = (el.placeholder || "").toLowerCase();
-      if (ph.includes("search")) continue;
-      const val = (el.value || "").trim();
-      // if focused -> user is typing, block
-      if (document.activeElement === el) return true;
-      // if has value and is inside a form/modal or is an add/update field -> block
-      // Check if input is inside modal or near save buttons (add/update context)
-      if (val.length > 0) {
-        // if inside modal -> definitely filling
-        if (el.closest(".fixed.inset-0")) return true;
-        // if page has any add/update context: check if input is text/number with label near "Product Name", "Category", etc.
-        // For simplicity, block if any non-search input has value and is not a filter/search
-        // But don't block for pure search pages where value is search query - those were skipped via placeholder
-        // So any remaining non-search input with value means filling
-        return true;
-      }
-      if (el.isContentEditable && (el.textContent || "").trim().length > 0) return true;
-    }
-    // 5. If any select has non-default value or focused select
-    const active = document.activeElement as HTMLElement | null;
-    if (active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || active.tagName === "SELECT" || active.isContentEditable)) {
-      return true;
-    }
-    // 6. Optional: global marker if pages set data-submitting on body
-    if (document.body?.dataset?.submitting === "true") return true;
-    return false;
-  }, []);
-
+  // No auto-refresh: refresh only after an action (manual click or after save/update)
+  // Listen for programmatic refresh after any successful add/update
   useEffect(() => {
-    // Auto-refresh every 30 seconds ONLY when idle (no filling/updating)
-    // If user is filling any form or update is in progress -> skip this tick entirely, wait next 30s
-    const interval = setInterval(() => {
-      if (shouldDeferRefresh()) {
-        // User is filling/updating -> NO auto-refresh this cycle
-        return;
-      }
-      // Idle -> do auto-refresh
+    const onActionRefresh = () => {
       setIsSpinning(true);
+      triggerBackgroundRefresh();
       setTimeout(() => {
-        // Double-check still idle before actually refreshing (user may have started typing in 400ms)
-        if (shouldDeferRefresh()) {
-          setIsSpinning(false);
-          return;
-        }
-        triggerBackgroundRefresh();
         setIsSpinning(false);
         window.location.reload();
       }, 400);
-    }, 30000);
-
-    return () => clearInterval(interval);
-  }, [shouldDeferRefresh]);
+    };
+    window.addEventListener("udhar:action-refresh", onActionRefresh);
+    return () => window.removeEventListener("udhar:action-refresh", onActionRefresh);
+  }, []);
   return (
     <header className="bg-[#0b1e59] text-white h-16 flex items-center justify-between px-4 shrink-0">
       <div className="flex items-center space-x-3 w-64">
@@ -127,7 +65,7 @@ export default function Header({ title: _title = "Dashboard" }: { title?: string
           onClick={handleRefresh}
           className="p-1.5 rounded-full hover:bg-slate-800 text-slate-300"
           aria-label="Refresh"
-          title="Refresh (auto every 30s)"
+          title="Refresh"
         >
           <RefreshCw className={`w-5 h-5 ${isSpinning ? "animate-spin" : ""}`} />
         </button>

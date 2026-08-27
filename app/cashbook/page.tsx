@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { ref, push } from "firebase/database";
-import { onValueWithCache, CACHE_KEYS } from "@/lib/cache";
+import { onValueWithCache, CACHE_KEYS, triggerActionRefresh } from "@/lib/cache";
 import {
   Chart as ChartJS,
   ArcElement,
@@ -166,6 +166,7 @@ export default function CashBookPage() {
         type: txnType,
         createdAt: Date.now(),
       });
+      triggerActionRefresh();
       setModalOpen(false);
     } catch (e) {
       setFormError(e instanceof Error ? e.message : "Failed to save transaction.");

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { ref, push, set, update, remove } from "firebase/database";
-import { onValueWithCache, CACHE_KEYS } from "@/lib/cache";import {
+import { onValueWithCache, CACHE_KEYS, triggerActionRefresh } from "@/lib/cache";import {
   Users,
   ArrowUpRight,
   Clock,
@@ -286,6 +286,7 @@ export default function SuppliersPage() {
           (selected.totalAmount ?? 0) + amount,
       };
       await update(ref(db), updates);
+      triggerActionRefresh();
       setEntryForm({ details: "", amount: "", date: "" });
       setEntryOpen(false);
     } catch (e) {
@@ -321,6 +322,7 @@ export default function SuppliersPage() {
       updates[`suppliers/${selected.id}/totalAmount`] =
         (selected.totalAmount ?? 0) - amount;
       await update(ref(db), updates);
+      triggerActionRefresh();
       setSettleAmount("");
       setSettleDesc("");
       setSettleDate("");
@@ -356,6 +358,7 @@ export default function SuppliersPage() {
         createdAt,
       };
       await set(supplierRef, record);
+      triggerActionRefresh();
       setAddOpen(false);
       setAddForm({ name: "", phone: "", address: "" });
     } catch (e) {
@@ -393,6 +396,7 @@ export default function SuppliersPage() {
       updates[`suppliers/${selected.id}/transactions/${editTxn.id}/amount`] =
         amount;
       await update(ref(db), updates);
+      triggerActionRefresh();
       setEditTxn(null);
     } catch (e) {
       setEditError(

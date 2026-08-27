@@ -1,6 +1,6 @@
 import { ref, push, update } from "firebase/database";
 import { db } from "./firebase";
-import { getWithCache, CACHE_KEYS } from "./cache";
+import { getWithCache, CACHE_KEYS, triggerActionRefresh } from "./cache";
 
 export type Product = {
   name: string;
@@ -180,4 +180,5 @@ export async function submitSale(params: {
   }
 
   await update(ref(db), updates);
+  if (typeof window !== "undefined") triggerActionRefresh();
 }

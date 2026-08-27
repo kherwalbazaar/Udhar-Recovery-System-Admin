@@ -17,8 +17,7 @@ import {
 
 const navItems = [
   { label: "Dashboard", icon: Home, href: "/" },
-  { label: "Add Product", icon: Package, href: "/products" },
-  { label: "All Product", icon: Boxes, href: "/products/all" },
+  { label: "Product", icon: Package, href: "/products" },
   { label: "Sales", icon: ShoppingCart, href: "/sales" },
   { label: "Sale Report", icon: BarChart2, href: "/sales-report" },
   { label: "Khata (Customers)", icon: Users, href: "/customers" },

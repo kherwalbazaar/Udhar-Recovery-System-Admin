@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { onValue, ref } from "firebase/database";
+import { ref } from "firebase/database";
 import { db } from "@/lib/firebase";
+import { onValueWithCache, CACHE_KEYS } from "@/lib/cache";
 import {
   buildMetrics,
   type Metrics,
@@ -73,24 +74,27 @@ export default function MetricCards() {
     };
     const onError = (err: Error) => setError(err.message);
 
-    const unsubSales = onValue(
+    const unsubSales = onValueWithCache(
       salesRef,
+      CACHE_KEYS.SALES,
       (snap) => {
         salesData = (snap.val() as RawMap) ?? null;
         update();
       },
       onError
     );
-    const unsubCustomers = onValue(
+    const unsubCustomers = onValueWithCache(
       customersRef,
+      CACHE_KEYS.CUSTOMERS,
       (snap) => {
         customersData = (snap.val() as RawMap) ?? null;
         update();
       },
       onError
     );
-    const unsubProducts = onValue(
+    const unsubProducts = onValueWithCache(
       productsRef,
+      CACHE_KEYS.PRODUCTS,
       (snap) => {
         productsData = (snap.val() as RawMap) ?? null;
         update();

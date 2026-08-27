@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { onValue, ref, push } from "firebase/database";
+import { ref, push } from "firebase/database";
+import { onValueWithCache, CACHE_KEYS } from "@/lib/cache";
 import {
   Chart as ChartJS,
   ArcElement,
@@ -121,8 +122,9 @@ export default function CashBookPage() {
 
   useEffect(() => {
     const cashbookRef = ref(db, "cashbook");
-    const unsub = onValue(
+    const unsub = onValueWithCache(
       cashbookRef,
+      CACHE_KEYS.CASHBOOK,
       (snap) => {
         setData(buildCashbook((snap.val() as RawMap) ?? null, new Date()));
         setLoading(false);

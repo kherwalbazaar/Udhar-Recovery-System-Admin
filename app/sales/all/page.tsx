@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { onValue, ref } from "firebase/database";
+import { ref } from "firebase/database";
 import { ShoppingCart, Search, ArrowRight } from "lucide-react";
 import AppShell from "@/components/AppShell";
 import { db } from "@/lib/firebase";
+import { onValueWithCache, CACHE_KEYS } from "@/lib/cache";
 
 type RawMap = Record<string, Record<string, unknown>> | null;
 
@@ -53,8 +54,9 @@ export default function AllSalesPage() {
   const perPage = 20;
 
   useEffect(() => {
-    const unsub = onValue(
+    const unsub = onValueWithCache(
       ref(db, "sales"),
+      CACHE_KEYS.SALES,
       (snap) => {
         const raw = (snap.val() as RawMap) ?? null;
         const all: SaleRow[] = raw

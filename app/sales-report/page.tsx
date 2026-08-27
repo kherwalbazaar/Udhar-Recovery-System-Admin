@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { onValue, ref, update, remove } from "firebase/database";
+import { ref, update, remove } from "firebase/database";
+import { onValueWithCache, CACHE_KEYS } from "@/lib/cache";
 import {
   Search,
   Calendar,
@@ -84,13 +85,13 @@ export default function SalesReportPage() {
       setLoading(false);
     };
 
-    const unsubSales = onValue(salesRef, (snap) => {
+    const unsubSales = onValueWithCache(salesRef, CACHE_KEYS.SALES, (snap) => {
       salesData = (snap.val() as RawMap) ?? null;
       salesReady = true;
       update();
     }, onError);
 
-    const unsubProducts = onValue(productsRef, (snap) => {
+    const unsubProducts = onValueWithCache(productsRef, CACHE_KEYS.PRODUCTS, (snap) => {
       productsData = (snap.val() as RawMap) ?? null;
       productsReady = true;
       update();

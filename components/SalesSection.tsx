@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { onValue, ref } from "firebase/database";
+import { ref } from "firebase/database";
 import {
   ShoppingCart,
   PlusCircle,
@@ -9,6 +9,7 @@ import {
   ArrowRight,
 } from "lucide-react";
 import { db } from "@/lib/firebase";
+import { onValueWithCache, CACHE_KEYS } from "@/lib/cache";
 
 type RawMap = Record<string, Record<string, unknown>> | null;
 
@@ -50,8 +51,9 @@ export default function SalesSection({ limit = 6 }: { limit?: number }) {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const unsub = onValue(
+    const unsub = onValueWithCache(
       ref(db, "sales"),
+      CACHE_KEYS.SALES,
       (snap) => {
         const raw = (snap.val() as RawMap) ?? null;
         const today = toDateKey(new Date());

@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { onValue, ref, update, push } from "firebase/database";
+import { ref, update, push } from "firebase/database";
+import { onValueWithCache, CACHE_KEYS } from "@/lib/cache";
 import {
   Bell,
   Users,
@@ -97,8 +98,9 @@ export default function RemindersPage() {
 
   useEffect(() => {
     const customersRef = ref(db, "customers");
-    const unsub = onValue(
+    const unsub = onValueWithCache(
       customersRef,
+      CACHE_KEYS.CUSTOMERS,
       (snap) => {
         const raw = snap.val() as RawMap;
         const data = buildKhata(raw);

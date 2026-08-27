@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { onValue, ref, push, update } from "firebase/database";import {
+import { ref, push, update } from "firebase/database";
+import { onValueWithCache, CACHE_KEYS } from "@/lib/cache";import {
   Users,
   ArrowDown,
   ArrowUp,
@@ -139,8 +140,9 @@ export default function KhataPage() {
 
   useEffect(() => {
     const customersRef = ref(db, "customers");
-    const unsub = onValue(
+    const unsub = onValueWithCache(
       customersRef,
+      CACHE_KEYS.CUSTOMERS,
       (snap) => {
         setData(buildKhata((snap.val() as RawMap) ?? null));
         setLoading(false);

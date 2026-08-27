@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { onValue, ref, push, set, update, remove } from "firebase/database";import {
+import { ref, push, set, update, remove } from "firebase/database";
+import { onValueWithCache, CACHE_KEYS } from "@/lib/cache";import {
   Users,
   ArrowUpRight,
   Clock,
@@ -163,8 +164,9 @@ export default function SuppliersPage() {
 
   useEffect(() => {
     const suppliersRef = ref(db, "suppliers");
-    const unsub = onValue(
+    const unsub = onValueWithCache(
       suppliersRef,
+      CACHE_KEYS.SUPPLIERS,
       (snap) => {
         setData(buildSuppliers((snap.val() as RawMap) ?? null));
         setLoading(false);

@@ -1,5 +1,7 @@
-import { get, ref, set, update, remove } from "firebase/database";
+import { ref, set, update, remove } from "firebase/database";
 import { db } from "./firebase";
+import { getWithCache, CACHE_KEYS } from "./cache";
+import { get as firebaseGet } from "firebase/database";
 
 export type ProductRecord = {
   name: string;
@@ -48,7 +50,7 @@ export async function saveProduct(
   checkDuplicate = true
 ): Promise<void> {
   if (checkDuplicate) {
-    const snap = await get(ref(db, `products/${p.name}`));
+    const snap = await firebaseGet(ref(db, `products/${p.name}`));
     if (snap.exists()) {
       throw new Error(`Product "${p.name}" already exists.`);
     }
@@ -57,7 +59,7 @@ export async function saveProduct(
 }
 
 export async function fetchAllProducts(): Promise<ProductRecord[]> {
-  const snap = await get(ref(db, "products"));
+  const snap = await getWithCache(ref(db, "products"), CACHE_KEYS.PRODUCTS);
   const raw = snap.val() as
     | Record<string, Record<string, unknown>>
     | null;
@@ -82,7 +84,7 @@ export async function fetchAllProducts(): Promise<ProductRecord[]> {
 }
 
 export async function fetchSoldProducts(): Promise<ProductWithSales[]> {
-  const salesSnap = await get(ref(db, "sales"));
+  const salesSnap = await getWithCache(ref(db, "sales"), CACHE_KEYS.SALES);
   const salesRaw = salesSnap.val() as
     | Record<
         string,
@@ -118,7 +120,7 @@ export async function fetchSoldProducts(): Promise<ProductWithSales[]> {
     }
   }
 
-  const productsSnap = await get(ref(db, "products"));
+  const productsSnap = await getWithCache(ref(db, "products"), CACHE_KEYS.PRODUCTS);
   const productsRaw = productsSnap.val() as
     | Record<string, Record<string, unknown>>
     | null;
@@ -193,7 +195,7 @@ export async function deleteProduct(name: string): Promise<void> {
 }
 
 export async function fetchRecentProducts(): Promise<RecentProduct[]> {
-  const snap = await get(ref(db, "products"));
+  const snap = await getWithCache(ref(db, "products"), CACHE_KEYS.PRODUCTS);
   const raw = snap.val() as
     | Record<string, Record<string, unknown>>
     | null;

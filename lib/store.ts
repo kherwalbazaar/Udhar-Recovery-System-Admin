@@ -1,5 +1,6 @@
-import { get, ref, push, update } from "firebase/database";
+import { ref, push, update } from "firebase/database";
 import { db } from "./firebase";
+import { getWithCache, CACHE_KEYS } from "./cache";
 
 export type Product = {
   name: string;
@@ -32,7 +33,7 @@ function toDateKey(d: Date): string {
 }
 
 export async function fetchProducts(): Promise<Product[]> {
-  const snap = await get(ref(db, "products"));
+  const snap = await getWithCache(ref(db, "products"), CACHE_KEYS.PRODUCTS);
   const raw = snap.val() as
     | Record<
         string,
@@ -56,7 +57,7 @@ export async function fetchProducts(): Promise<Product[]> {
     }
   }
 
-  const salesSnap = await get(ref(db, "sales"));
+  const salesSnap = await getWithCache(ref(db, "sales"), CACHE_KEYS.SALES);
   const salesRaw = salesSnap.val() as
     | Record<
         string,
@@ -101,7 +102,7 @@ export async function fetchProducts(): Promise<Product[]> {
 }
 
 export async function fetchCustomers(): Promise<CustomerSummary[]> {
-  const snap = await get(ref(db, "customers"));
+  const snap = await getWithCache(ref(db, "customers"), CACHE_KEYS.CUSTOMERS);
   const raw = snap.val() as
     | Record<
         string,

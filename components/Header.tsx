@@ -21,75 +21,76 @@ export default function Header({ title: _title = "Dashboard" }: { title?: string
   }, []);
 
   const shouldDeferRefresh = useCallback(() => {
-    // 1. Tab not visible -> defer
+    // Returns true if user is filling/updating -> auto-refresh should be SKIPPED
+    // 1. Tab not visible -> skip
     if (typeof document !== "undefined" && document.visibilityState !== "visible") return true;
-    // 2. If any modal/dialog is open (all add/update modals use fixed inset-0) -> defer until closed
-    // Covers: Khata Entry/Settle/Edit, Sales QuickAdd, etc.
+    // 2. If any modal/dialog is open (all add/update modals use fixed inset-0) -> filling in modal
     if (document.querySelector(".fixed.inset-0")) return true;
-    // 3. If any submit is in progress (button shows Saving/Updating) -> wait until submission finishes
+    // 3. If any submit is in progress (button shows Saving/Updating) -> updating
     const disabledButtons = document.querySelectorAll("button[disabled]");
     for (const btn of Array.from(disabledButtons)) {
       const t = (btn.textContent || "").toLowerCase();
-      if (t.includes("saving") || t.includes("updating") || t.includes("submitting") || t.includes("adding")) {
+      if (t.includes("saving") || t.includes("updating") || t.includes("submitting") || t.includes("adding") || t.includes("deleting")) {
         return true;
       }
     }
-    // 4. If user is actively typing in a form field inside a modal/form -> defer
-    // Checks focused input inside a form or modal to avoid wiping unsaved add/update data
+    // 4. If any form field has unsaved data (user is filling) -> skip auto-refresh
+    // Check all inputs/textareas except search/filter fields
+    const inputs = document.querySelectorAll("input, textarea, select");
+    for (const el of Array.from(inputs) as HTMLInputElement[]) {
+      if (el.type === "hidden") continue;
+      // skip search/filter inputs (they shouldn't block auto-refresh)
+      const ph = (el.placeholder || "").toLowerCase();
+      if (ph.includes("search")) continue;
+      const val = (el.value || "").trim();
+      // if focused -> user is typing, block
+      if (document.activeElement === el) return true;
+      // if has value and is inside a form/modal or is an add/update field -> block
+      // Check if input is inside modal or near save buttons (add/update context)
+      if (val.length > 0) {
+        // if inside modal -> definitely filling
+        if (el.closest(".fixed.inset-0")) return true;
+        // if page has any add/update context: check if input is text/number with label near "Product Name", "Category", etc.
+        // For simplicity, block if any non-search input has value and is not a filter/search
+        // But don't block for pure search pages where value is search query - those were skipped via placeholder
+        // So any remaining non-search input with value means filling
+        return true;
+      }
+      if (el.isContentEditable && (el.textContent || "").trim().length > 0) return true;
+    }
+    // 5. If any select has non-default value or focused select
     const active = document.activeElement as HTMLElement | null;
     if (active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || active.tagName === "SELECT" || active.isContentEditable)) {
-      // Only defer if typing in a visible modal/form area, not header search
-      // Check if active input is inside a modal or has non-empty value (unsaved data)
-      const inModal = active.closest(".fixed.inset-0");
-      const hasValue = (active as HTMLInputElement).value?.trim().length > 0;
-      if (inModal || hasValue) return true;
+      return true;
     }
-    // 5. Optional: global marker if pages set data-submitting on body
+    // 6. Optional: global marker if pages set data-submitting on body
     if (document.body?.dataset?.submitting === "true") return true;
     return false;
   }, []);
 
   useEffect(() => {
-    let pendingTimeout: ReturnType<typeof setTimeout> | null = null;
-
-    const attemptRefresh = () => {
+    // Auto-refresh every 30 seconds ONLY when idle (no filling/updating)
+    // If user is filling any form or update is in progress -> skip this tick entirely, wait next 30s
+    const interval = setInterval(() => {
       if (shouldDeferRefresh()) {
-        // Wait until submissions / typing / modal finishes, then retry in 2s
-        pendingTimeout = setTimeout(attemptRefresh, 2000);
+        // User is filling/updating -> NO auto-refresh this cycle
         return;
       }
+      // Idle -> do auto-refresh
       setIsSpinning(true);
-      pendingTimeout = setTimeout(() => {
-        triggerBackgroundRefresh();
-        window.location.reload();
-      }, 800);
-    };
-
-    // Auto-refresh every 30 seconds while tab is visible, defer if add/update in progress
-    // Shows cached data instantly, fetches latest in background via onValueWithCache/getWithCache
-    const interval = setInterval(() => {
-      // Visual spin tick
-      setIsSpinning(true);
-      // Briefly show spin, then decide to refresh or defer
       setTimeout(() => {
+        // Double-check still idle before actually refreshing (user may have started typing in 400ms)
         if (shouldDeferRefresh()) {
-          // Don't refresh - just stop spin and schedule retry after submission completes
           setIsSpinning(false);
-          attemptRefresh();
           return;
         }
-        // No submission in progress -> soft background refresh + hard reload (instant due to cache)
         triggerBackgroundRefresh();
         setIsSpinning(false);
-        // hard reload still benefits from cache (stale-while-revalidate)
         window.location.reload();
       }, 400);
     }, 30000);
 
-    return () => {
-      clearInterval(interval);
-      if (pendingTimeout) clearTimeout(pendingTimeout);
-    };
+    return () => clearInterval(interval);
   }, [shouldDeferRefresh]);
   return (
     <header className="bg-[#0b1e59] text-white h-16 flex items-center justify-between px-4 shrink-0">

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import {
   Search,
   ShoppingCart,
@@ -81,6 +81,8 @@ export default function AddSalePage() {
   const [qaError, setQaError] = useState<string | null>(null);
   const [qaSaving, setQaSaving] = useState(false);
 
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
   const genSku = () =>
     `KB${Date.now().toString().slice(-6)}${Math.floor(1000 + Math.random() * 9000)}`;
 
@@ -107,6 +109,12 @@ export default function AddSalePage() {
       active = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (!productsLoading && searchInputRef.current) {
+      searchInputRef.current.focus();
+    }
+  }, [productsLoading]);
 
   const subtotal = cart.reduce((sum, item) => sum + item.sale * item.qty, 0);
   const payable = Math.max(0, subtotal - discount);
@@ -264,7 +272,10 @@ export default function AddSalePage() {
     if (!q) return products;
     const qWords = q.split(" ").filter(Boolean);
     const isSingleConcatenatedInitials = qWords.length === 1 && q.length <= 5;
+    const qAsNumber = Number(q);
     return products.filter((p) => {
+      if (p.barcode && p.barcode.toLowerCase().includes(q)) return true;
+      if (qAsNumber > 0 && (p.mrp === qAsNumber || p.sale === qAsNumber)) return true;
       const words = p.name.toLowerCase().split(/\s+/).filter(Boolean);
       const initials = words.map((w) => w[0]).join("");
       if (words.some((w) => w.startsWith(q))) return true;
@@ -461,10 +472,11 @@ export default function AddSalePage() {
                 </span>
                 <div className="rounded-lg p-0.5 animate-multicolor">
                   <input
+                    ref={searchInputRef}
                     type="text"
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
-                    placeholder="Search product by name / barcode"
+                    placeholder="Search product by name / barcode / MRP"
                     className="w-full text-xs bg-white rounded-[7px] pl-9 pr-3 py-2.5 focus:outline-none animate-search-blink"
                   />
                 </div>

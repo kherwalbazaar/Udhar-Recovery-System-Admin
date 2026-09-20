@@ -4,6 +4,7 @@ import { getWithCache, CACHE_KEYS, triggerActionRefresh } from "./cache";
 
 export type Product = {
   name: string;
+  barcode?: string;
   mrp: number;
   sale: number;
   createdAt?: number;
@@ -37,7 +38,7 @@ export async function fetchProducts(): Promise<Product[]> {
   const raw = snap.val() as
     | Record<
         string,
-        { name?: string; mrp?: number; sale?: number; createdAt?: number }
+        { name?: string; barcode?: string; mrp?: number; sale?: number; createdAt?: number }
       >
     | null;
 
@@ -50,6 +51,7 @@ export async function fetchProducts(): Promise<Product[]> {
       const sale = Number(p.sale ?? 0);
       byName.set(name, {
         name,
+        barcode: p.barcode ? String(p.barcode) : undefined,
         mrp,
         sale: sale > 0 ? sale : mrp,
         createdAt: Number(p.createdAt ?? 0),

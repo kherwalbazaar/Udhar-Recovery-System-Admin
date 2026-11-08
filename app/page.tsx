@@ -1,5 +1,6 @@
 import AppShell from "@/components/AppShell";
 import MetricCards from "@/components/MetricCards";
+import LiveAmountCard from "@/components/LiveAmountCard";
 import QuickActions from "@/components/QuickActions";
 import RecentSales from "@/components/RecentSales";
 import OverviewChart from "@/components/OverviewChart";
@@ -16,6 +17,7 @@ export default function Home() {
       </div>
 
       <MetricCards />
+      <LiveAmountCard />
       <QuickActions />
 
       <div className="grid grid-cols-12 gap-4">

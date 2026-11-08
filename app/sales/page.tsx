@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useCallback, useEffect, useState, useRef } from "react";
 import {
   Search,
   ShoppingCart,
@@ -17,6 +17,7 @@ import {
   ArrowRight,
 } from "lucide-react";
 import AppShell from "@/components/AppShell";
+import OptionalSupabaseAdminSignIn from "@/components/OptionalSupabaseAdminSignIn";
 import {
   fetchProducts,
   fetchCustomers,
@@ -25,6 +26,7 @@ import {
   type CustomerSummary,
 } from "@/lib/store";
 import { saveProduct } from "@/lib/products";
+import { savePayableAmount } from "@/lib/supabase";
 
 type CartItem = {
   name: string;
@@ -71,6 +73,10 @@ export default function AddSalePage() {
   const [receivedTouched, setReceivedTouched] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  const [pendingPayable, setPendingPayable] = useState<number | null>(null);
+  const [syncingPayable, setSyncingPayable] = useState(false);
+  const [syncAuthorized, setSyncAuthorized] = useState(false);
+  const [syncError, setSyncError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [quickAddOpen, setQuickAddOpen] = useState(false);
   const [qaName, setQaName] = useState("");
@@ -80,6 +86,7 @@ export default function AddSalePage() {
   const [qaBarcode, setQaBarcode] = useState("");
   const [qaError, setQaError] = useState<string | null>(null);
   const [qaSaving, setQaSaving] = useState(false);
+  const [barcodeNotice, setBarcodeNotice] = useState<string | null>(null);
 
   const searchInputRef = useRef<HTMLInputElement>(null);
 
@@ -240,8 +247,20 @@ export default function AddSalePage() {
 
   const handleSubmit = async () => {
     if (cart.length === 0) return;
+    const finalPayable = Number(payable.toFixed(2));
+    if (finalPayable <= 0) {
+      setError("Final payable must be greater than zero to sync with the QR amount.");
+      return;
+    }
+    if (pendingPayable !== null) {
+      setError("Sync the previous sale amount before submitting another sale.");
+      return;
+    }
+
     setSubmitting(true);
     setError(null);
+    setSyncError(null);
+    setSubmitted(false);
     try {
       await submitSale({
         items: cart.map((i) => ({
@@ -254,18 +273,54 @@ export default function AddSalePage() {
         customer: selectedCustomer,
         received,
       });
-      setSubmitted(true);
+
       setCart([]);
       setDiscount(0);
       setSelectedCustomer(null);
       setReceivedTouched(false);
-      setTimeout(() => setSubmitted(false), 3000);
+      setPendingPayable(finalPayable);
+
+      try {
+        await savePayableAmount(finalPayable);
+        setPendingPayable(null);
+        setSubmitted(true);
+        setTimeout(() => setSubmitted(false), 3000);
+      } catch (e) {
+        setSyncError(
+          `Sale was saved to Firebase, but its final payable amount was not synced to Supabase. ${e instanceof Error ? e.message : "Try syncing again."}`
+        );
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to submit sale.");
     } finally {
       setSubmitting(false);
     }
   };
+
+  const retryPayableSync = useCallback(async () => {
+    if (pendingPayable === null || syncingPayable) return;
+
+    setSyncingPayable(true);
+    setSyncError(null);
+    try {
+      await savePayableAmount(pendingPayable);
+      setPendingPayable(null);
+      setSubmitted(true);
+      setTimeout(() => setSubmitted(false), 3000);
+    } catch (e) {
+      setSyncError(
+        `Sale is saved to Firebase, but its final payable amount is still not synced. ${e instanceof Error ? e.message : "Try syncing again."}`
+      );
+    } finally {
+      setSyncingPayable(false);
+    }
+  }, [pendingPayable, syncingPayable]);
+
+  useEffect(() => {
+    if (syncAuthorized && pendingPayable !== null && !syncingPayable) {
+      void retryPayableSync();
+    }
+  }, [pendingPayable, retryPayableSync, syncAuthorized, syncingPayable]);
 
   const filteredProducts = (() => {
     const q = search.trim().toLowerCase().replace(/\s+/g, " ");
@@ -475,13 +530,35 @@ export default function AddSalePage() {
                     ref={searchInputRef}
                     type="text"
                     value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                    placeholder="Search product by name / barcode / MRP"
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setSearch(val);
+                      const trimmed = val.trim();
+                      if (!trimmed) return;
+                      const matched = products.find(
+                        (p) => p.barcode && p.barcode === trimmed
+                      );
+                      if (matched) {
+                        addToCart(matched);
+                        setBarcodeNotice(`"${matched.name}" added to cart`);
+                        setTimeout(() => setBarcodeNotice(null), 2000);
+                        setSearch("");
+                        setTimeout(() => searchInputRef.current?.focus(), 50);
+                      }
+                    }}
+                    placeholder="Scan barcode or search product..."
                     className="w-full text-xs bg-white rounded-[7px] pl-9 pr-3 py-2.5 focus:outline-none animate-search-blink"
                   />
                 </div>
               </div>
             </div>
+
+            {barcodeNotice && (
+              <div className="mb-3 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2 text-xs font-semibold text-emerald-700 flex items-center justify-center space-x-1.5 animate-pulse">
+                <Check className="w-3.5 h-3.5" />
+                <span>{barcodeNotice}</span>
+              </div>
+            )}
 
             <div className="max-h-[calc(100vh-260px)] overflow-y-auto overflow-x-auto pr-1 scroll-smooth">
               <table className="w-full text-left border-collapse table-fixed">
@@ -815,27 +892,60 @@ export default function AddSalePage() {
               </div>
             )}
 
-            {submitted && (
-              <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-2 text-xs font-semibold text-emerald-600">
-                Sale saved to Firebase successfully.
-              </div>
-            )}
-
             <button
               type="button"
               onClick={handleSubmit}
-              disabled={submitting || cart.length === 0}
+              disabled={
+                submitting || cart.length === 0 || pendingPayable !== null
+              }
               className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold text-xs py-2.5 rounded-lg flex items-center justify-center space-x-1.5 transition-colors"
             >
               <Check className="w-4 h-4" />
               <span>
-                {submitting ? "Saving..." : "Submit Sale"}
+                {submitting
+                  ? "Saving..."
+                  : pendingPayable !== null
+                    ? "Sync previous sale first"
+                    : "Submit Sale"}
               </span>
             </button>
           </div>
           )}
         </div>
       </div>
+
+      {submitted && (
+        <div
+          role="status"
+          className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-xs font-semibold text-emerald-700"
+        >
+          Sale saved to Firebase and final payable amount synced to Supabase.
+        </div>
+      )}
+
+      {syncError && (
+        <div
+          role="alert"
+          className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs font-semibold text-amber-800"
+        >
+          <div className="w-full space-y-3">
+            <p>{syncError}</p>
+            <OptionalSupabaseAdminSignIn
+              onAuthorizationChange={setSyncAuthorized}
+            />
+            {pendingPayable !== null && !syncAuthorized && (
+              <button
+                type="button"
+                onClick={() => void retryPayableSync()}
+                disabled={syncingPayable}
+                className="rounded-md bg-amber-700 px-3 py-1.5 text-white hover:bg-amber-800 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {syncingPayable ? "Syncing..." : "Retry amount sync"}
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       {quickAddOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">

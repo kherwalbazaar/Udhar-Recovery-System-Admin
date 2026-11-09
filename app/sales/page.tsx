@@ -17,6 +17,7 @@ import {
   ArrowRight,
 } from "lucide-react";
 import AppShell from "@/components/AppShell";
+import LiveAmountCard from "@/components/LiveAmountCard";
 import OptionalSupabaseAdminSignIn from "@/components/OptionalSupabaseAdminSignIn";
 import {
   fetchProducts,
@@ -420,16 +421,19 @@ export default function AddSalePage() {
 
   return (
     <AppShell title="" active="Sales">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-xl font-bold text-slate-800">Sales</h1>
 
-        <a
-          href="/sales-report"
-          className="text-xs text-slate-600 font-medium hover:text-slate-900 flex items-center space-x-1 border border-slate-200 rounded-lg px-3 py-1.5 bg-white shadow-sm"
-        >
-          <span>Sale Report</span>
-          <ArrowRight className="w-3.5 h-3.5" />
-        </a>
+        <div className="flex flex-wrap items-center gap-2">
+          <LiveAmountCard variant="tab" />
+          <a
+            href="/sales-report"
+            className="text-xs text-slate-600 font-medium hover:text-slate-900 flex items-center space-x-1 border border-slate-200 rounded-lg px-3 py-1.5 bg-white shadow-sm"
+          >
+            <span>Sale Report</span>
+            <ArrowRight className="w-3.5 h-3.5" />
+          </a>
+        </div>
       </div>
 
       <div className="grid grid-cols-12 gap-4">

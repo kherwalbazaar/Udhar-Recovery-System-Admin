@@ -14,7 +14,11 @@ function formatRupee(amount: number): string {
   })}`;
 }
 
-export default function LiveAmountCard() {
+export default function LiveAmountCard({
+  variant = "card",
+}: {
+  variant?: "card" | "tab";
+}) {
   const [amount, setAmount] = useState<number | null>(null);
   const [amountStatus, setAmountStatus] = useState<AmountStatus>("loading");
   const [connectionStatus, setConnectionStatus] =
@@ -125,6 +129,36 @@ export default function LiveAmountCard() {
         : amountStatus === "empty"
           ? "No amount available"
           : "Unavailable";
+
+  if (variant === "tab") {
+    return (
+      <div
+        className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5 shadow-sm"
+        role="status"
+        aria-busy={amountStatus === "loading"}
+        aria-live="polite"
+        title={queryError || realtimeError || "Live amount from Supabase"}
+      >
+        <span className="text-xs font-medium text-slate-600">Last Sale</span>
+        <span className="text-xs font-bold text-slate-800">{amountLabel}</span>
+        <span
+          className={`h-2 w-2 rounded-full ${
+            connectionStatus === "connected"
+              ? "bg-emerald-500"
+              : connectionStatus === "connecting"
+                ? "bg-amber-500"
+                : "bg-rose-500"
+          }`}
+          aria-hidden="true"
+        />
+        {(queryError || realtimeError) && (
+          <span role="alert" className="sr-only">
+            {queryError || realtimeError}
+          </span>
+        )}
+      </div>
+    );
+  }
 
   return (
     <section

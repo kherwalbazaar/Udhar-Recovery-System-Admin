@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import FirebaseAnalytics from "@/components/FirebaseAnalytics";
+import ToastProvider from "@/components/ToastProvider";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -32,8 +33,10 @@ export default function RootLayout({
         />
       </head>
       <body className="bg-[#f3f4f8] text-slate-800 flex flex-col h-screen overflow-hidden">
-        {children}
-        <FirebaseAnalytics />
+        <ToastProvider>
+          {children}
+          <FirebaseAnalytics />
+        </ToastProvider>
       </body>
     </html>
   );

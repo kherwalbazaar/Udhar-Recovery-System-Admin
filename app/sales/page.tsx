@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState, useRef } from "react";
+import dynamic from "next/dynamic";
 import {
   Search,
   ShoppingCart,
@@ -14,10 +15,9 @@ import {
   X,
   AlertCircle,
   ChevronDown,
-  ArrowRight,
 } from "lucide-react";
 import AppShell from "@/components/AppShell";
-import LiveAmountCard from "@/components/LiveAmountCard";
+import { useToast } from "@/components/ToastProvider";
 import OptionalSupabaseAdminSignIn from "@/components/OptionalSupabaseAdminSignIn";
 import {
   fetchProducts,
@@ -28,6 +28,11 @@ import {
 } from "@/lib/store";
 import { saveProduct } from "@/lib/products";
 import { savePayableAmount } from "@/lib/supabase";
+
+const LiveAmountCard = dynamic(
+  () => import("@/components/LiveAmountCard"),
+  { ssr: false }
+);
 
 type CartItem = {
   name: string;
@@ -60,6 +65,8 @@ const fmt = (n: number) =>
   });
 
 export default function AddSalePage() {
+  const { showToast } = useToast();
+  const [mounted, setMounted] = useState(false);
   const [products, setProducts] = useState<Product[]>([]);
   const [productsLoading, setProductsLoading] = useState(true);
   const [customers, setCustomers] = useState<CustomerSummary[]>([]);
@@ -73,7 +80,6 @@ export default function AddSalePage() {
   const [received, setReceived] = useState(0);
   const [receivedTouched, setReceivedTouched] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [submitted, setSubmitted] = useState(false);
   const [pendingPayable, setPendingPayable] = useState<number | null>(null);
   const [syncingPayable, setSyncingPayable] = useState(false);
   const [syncAuthorized, setSyncAuthorized] = useState(false);
@@ -93,6 +99,10 @@ export default function AddSalePage() {
 
   const genSku = () =>
     `KB${Date.now().toString().slice(-6)}${Math.floor(1000 + Math.random() * 9000)}`;
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -261,7 +271,6 @@ export default function AddSalePage() {
     setSubmitting(true);
     setError(null);
     setSyncError(null);
-    setSubmitted(false);
     try {
       await submitSale({
         items: cart.map((i) => ({
@@ -284,8 +293,7 @@ export default function AddSalePage() {
       try {
         await savePayableAmount(finalPayable);
         setPendingPayable(null);
-        setSubmitted(true);
-        setTimeout(() => setSubmitted(false), 3000);
+        showToast("success", "Sale added successfully!");
       } catch (e) {
         setSyncError(
           `Sale was saved to Firebase, but its final payable amount was not synced to Supabase. ${e instanceof Error ? e.message : "Try syncing again."}`
@@ -306,8 +314,7 @@ export default function AddSalePage() {
     try {
       await savePayableAmount(pendingPayable);
       setPendingPayable(null);
-      setSubmitted(true);
-      setTimeout(() => setSubmitted(false), 3000);
+      showToast("success", "Sale added successfully!");
     } catch (e) {
       setSyncError(
         `Sale is saved to Firebase, but its final payable amount is still not synced. ${e instanceof Error ? e.message : "Try syncing again."}`
@@ -315,7 +322,7 @@ export default function AddSalePage() {
     } finally {
       setSyncingPayable(false);
     }
-  }, [pendingPayable, syncingPayable]);
+  }, [pendingPayable, showToast, syncingPayable]);
 
   useEffect(() => {
     if (syncAuthorized && pendingPayable !== null && !syncingPayable) {
@@ -421,18 +428,19 @@ export default function AddSalePage() {
 
   return (
     <AppShell title="" active="Sales">
-      <div className="flex flex-wrap items-center justify-between gap-2">
+      <div className="flex flex-wrap md:flex-nowrap items-center justify-between gap-2">
         <h1 className="text-xl font-bold text-slate-800">Sales</h1>
 
         <div className="flex flex-wrap items-center gap-2">
           <LiveAmountCard variant="tab" />
-          <a
-            href="/sales-report"
-            className="text-xs text-slate-600 font-medium hover:text-slate-900 flex items-center space-x-1 border border-slate-200 rounded-lg px-3 py-1.5 bg-white shadow-sm"
-          >
-            <span>Sale Report</span>
-            <ArrowRight className="w-3.5 h-3.5" />
-          </a>
+          {mounted && (
+            <a
+              href="/sales-report"
+              className="text-xs text-slate-600 font-medium hover:text-slate-900 flex items-center"
+            >
+              Sales Report
+            </a>
+          )}
         </div>
       </div>
 
@@ -917,15 +925,6 @@ export default function AddSalePage() {
           )}
         </div>
       </div>
-
-      {submitted && (
-        <div
-          role="status"
-          className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-xs font-semibold text-emerald-700"
-        >
-          Sale saved to Firebase and final payable amount synced to Supabase.
-        </div>
-      )}
 
       {syncError && (
         <div

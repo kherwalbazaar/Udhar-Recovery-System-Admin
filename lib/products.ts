@@ -6,6 +6,7 @@ import { get as firebaseGet } from "firebase/database";
 export type ProductRecord = {
   name: string;
   barcode?: string;
+  qrCode?: string;
   category?: string;
   brand?: string;
   unit?: string;
@@ -69,7 +70,9 @@ export async function fetchAllProducts(): Promise<ProductRecord[]> {
     .map((r) => ({
       name: String(r.name ?? ""),
       barcode: r.barcode ? String(r.barcode) : undefined,
+      qrCode: r.qrCode ? String(r.qrCode) : undefined,
       category: r.category ? String(r.category) : undefined,
+      unit: r.unit ? String(r.unit) : undefined,
       mrp: Number(r.mrp ?? 0),
       cost: r.cost != null ? Number(r.cost) : undefined,
       sale: r.sale != null ? Number(r.sale) : undefined,
@@ -134,6 +137,9 @@ export async function fetchSoldProducts(): Promise<ProductWithSales[]> {
     records.push({
       name: s.name,
       barcode: p?.barcode ? String(p.barcode) : undefined,
+      qrCode: p?.qrCode ? String(p.qrCode) : undefined,
+      category: p?.category ? String(p.category) : undefined,
+      unit: p?.unit ? String(p.unit) : undefined,
       mrp,
       cost: isCatalog
         ? p?.cost != null
@@ -143,6 +149,7 @@ export async function fetchSoldProducts(): Promise<ProductWithSales[]> {
           ? mrp / 2
           : undefined,
       sale: s.sale > 0 ? s.sale : p?.sale != null ? Number(p.sale) : undefined,
+      stock: p?.stock != null ? Number(p.stock) : undefined,
       totalQty: s.qty,
       inCatalog: isCatalog,
     });
@@ -158,9 +165,13 @@ export async function fetchSoldProducts(): Promise<ProductWithSales[]> {
       records.push({
         name,
         barcode: p.barcode ? String(p.barcode) : undefined,
+        qrCode: p.qrCode ? String(p.qrCode) : undefined,
+        category: p.category ? String(p.category) : undefined,
+        unit: p.unit ? String(p.unit) : undefined,
         mrp: Number(p.mrp ?? 0),
         cost: p.cost != null ? Number(p.cost) : undefined,
         sale: p.sale != null ? Number(p.sale) : undefined,
+        stock: p.stock != null ? Number(p.stock) : undefined,
         totalQty: 0,
         inCatalog: true,
       });
@@ -173,9 +184,13 @@ export async function fetchSoldProducts(): Promise<ProductWithSales[]> {
 export type ProductWithSales = {
   name: string;
   barcode?: string;
+  qrCode?: string;
+  category?: string;
+  unit?: string;
   mrp: number;
   cost?: number;
   sale?: number;
+  stock?: number;
   totalQty: number;
   inCatalog: boolean;
 };

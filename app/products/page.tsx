@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { onValue, push, ref, set, update } from "firebase/database";
 import {
   Package,
@@ -27,15 +28,15 @@ import {
   deleteProduct,
   fetchRecentProducts,
   fetchAllProducts,
-  fetchSoldProducts,
+  fetchCatalogProducts,
   type ProductRecord,
   type RecentProduct,
   type ProductWithSales,
 } from "@/lib/products";
-import { fetchProducts } from "@/lib/store";
 import { db } from "@/lib/firebase";
 import { triggerActionRefresh } from "@/lib/cache";
 import QRCode from "qrcode";
+import JsBarcode from "jsbarcode";
 
 const fmt = (n: number) =>
   n.toLocaleString("en-IN", {
@@ -82,9 +83,19 @@ function parseCsv(text: string): string[][] {
   return rows;
 }
 
-function printProductQR(product: ProductWithSales) {
-  const qrCode = product.qrCode;
-  if (!qrCode) return;
+function printProductBarcodeTag(product: ProductWithSales) {
+  const barcode = product.barcode?.trim();
+  if (!barcode) return;
+  const barcodeSvg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  JsBarcode(barcodeSvg, barcode, {
+    format: "CODE128",
+    displayValue: false,
+    width: 1.5,
+    height: 48,
+    margin: 0,
+    lineColor: "#000000",
+    background: "#ffffff",
+  });
   const printWindow = window.open("", "_blank", "width=420,height=320");
   if (!printWindow) return;
   const escapeHtml = (value: string) =>
@@ -95,11 +106,18 @@ function printProductQR(product: ProductWithSales) {
       '"': "&quot;",
       "'": "&#39;",
     })[char] ?? char);
-  printWindow.document.write(`<!doctype html><html><head><title>Product QR Code</title><style>
-    @page{size:60mm 35mm;margin:3mm}body{font:12px Arial,sans-serif;text-align:center;color:#111}
-    h1{font-size:14px;margin:2mm 0 3mm}.qr{width:24mm;height:24mm;image-rendering:pixelated}.code{font:10px monospace;margin-top:1mm}
-    @media screen{body{width:54mm;margin:20px auto;border:1px dashed #aaa;padding:8px}}
-  </style></head><body><h1>${escapeHtml(product.name)}</h1><img class="qr" src="${escapeHtml(qrCode)}" alt="Product QR code"><div class="code">${escapeHtml(product.barcode ?? "")}</div><script>window.onload=()=>window.print()</script></body></html>`);
+  printWindow.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Kherwal Bazaar Product Tag</title><style>
+    @page{size:60mm 35mm;margin:2mm}
+    *{box-sizing:border-box}
+    body{width:56mm;margin:0 auto;color:#000;background:#fff;font:10px Arial,Helvetica,sans-serif;text-align:center}
+    .brand{margin:0 0 1mm;font-size:12px;font-weight:800;letter-spacing:.5px}
+    .name{overflow:hidden;max-height:7mm;font-size:10px;font-weight:700;line-height:1.2}
+    .mrp{margin-top:.5mm;font-size:11px;font-weight:700;white-space:nowrap}
+    .barcode{height:14mm;margin:1mm auto 0}
+    .barcode svg{display:block;width:100%;height:100%}
+    .code{display:flex;justify-content:space-between;margin-top:.5mm;font:9px monospace}
+    @media screen{body{margin:20px auto;border:1px dashed #aaa;padding:2mm}}
+  </style></head><body><div class="brand">KHERWAL BAZAAR</div><div class="name">${escapeHtml(product.name)}</div><div class="mrp">MRP: ₹${Number(product.mrp || 0).toFixed(2)}</div><div class="barcode">${barcodeSvg.outerHTML}</div><div class="code">${[...barcode].map((digit) => `<span>${escapeHtml(digit)}</span>`).join("")}</div><script>window.onload=()=>window.print()</script></body></html>`);
   printWindow.document.close();
 }
 
@@ -146,6 +164,57 @@ export default function ProductPage() {
   const [importing, setImporting] = useState(false);
   const [generatingQrFor, setGeneratingQrFor] = useState<string | null>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
+  const nameInputRef = useRef<HTMLInputElement>(null);
+  const router = useRouter();
+  const [returnToSales, setReturnToSales] = useState(false);
+  const newRowNameInputRef = useRef<HTMLInputElement>(null);
+  const newRowPurchaseInputRef = useRef<HTMLInputElement>(null);
+  const newRowBarcodeInputRef = useRef<HTMLInputElement>(null);
+  const newRowMrpInputRef = useRef<HTMLInputElement>(null);
+  const newRowSaleInputRef = useRef<HTMLInputElement>(null);
+  const newRowSizeInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const initialBarcode = params.get("barcode");
+    const fromParam = params.get("from");
+    const isFromSales = fromParam === "sales" || !!initialBarcode;
+
+    if (isFromSales) {
+      setReturnToSales(true);
+      try {
+        sessionStorage.setItem("product_return_to_sales", "true");
+      } catch {}
+    } else {
+      try {
+        if (sessionStorage.getItem("product_return_to_sales") === "true") {
+          setReturnToSales(true);
+        }
+      } catch {}
+    }
+
+    if (!initialBarcode) return;
+
+    // Pre-fill barcode in both the full form and the inline row
+    setBarcode(initialBarcode);
+    setShowBarcode(true);
+
+    // Keep on "All Product" section with pre-filled barcode and focus next data fill (Product Name)
+    setShowForm(false);
+    setNewRow({
+      name: "",
+      purchase: "",
+      barcode: initialBarcode,
+      mrp: "",
+      sale: "",
+      size: "",
+    });
+    setNewRowError(null);
+    setIsAddingRow(true);
+    requestAnimationFrame(() => {
+      newRowNameInputRef.current?.focus();
+    });
+  }, []);
 
   useEffect(() => {
     const unsubscribe = onValue(ref(db, "productCategories"), (snapshot) => {
@@ -164,39 +233,10 @@ export default function ProductPage() {
     fetchRecentProducts()
       .then(setRecent)
       .catch(() => {});
-    fetchProducts()
-      .then((prods) => {
-        const recs: ProductRecord[] = prods.map((p) => ({
-          name: p.name,
-          mrp: p.mrp,
-          sale: p.sale,
-          active: true,
-          trackStock: true,
-          createdAt: p.createdAt ?? 0,
-        }));
-        fetchAllProducts()
-          .then((all) => {
-            const map = new Map<string, ProductRecord>();
-            for (const r of recs) map.set(r.name.toLowerCase(), r);
-            for (const p of all) {
-              const k = p.name.toLowerCase();
-              const existing = map.get(k);
-              if (existing) {
-                map.set(k, { ...existing, ...p });
-              } else {
-                map.set(k, p);
-              }
-            }
-            setAllProducts(Array.from(map.values()));
-          })
-          .catch(() => setAllProducts(recs));
-      })
-      .catch(() => {
-        fetchAllProducts()
-          .then(setAllProducts)
-          .catch(() => {});
-      });
-    fetchSoldProducts()
+    fetchAllProducts()
+      .then(setAllProducts)
+      .catch((loadError: Error) => showToast("error", loadError.message));
+    fetchCatalogProducts()
       .then(setProductList)
       .catch((e: Error) => setListError(e.message))
       .finally(() => setListLoading(false));
@@ -204,7 +244,7 @@ export default function ProductPage() {
 
   const refreshList = () => {
     setListLoading(true);
-    fetchSoldProducts()
+    fetchCatalogProducts()
       .then((data) => {
         setProductList(data);
         setListError(null);
@@ -263,6 +303,7 @@ export default function ProductPage() {
         };
         const record: ProductRecord = {
           name: productName,
+          origin: "catalog",
           barcode: field(row, ["barcode", "sku"]).trim() || undefined,
           qrCode: allProducts.find((item) => item.name.toLowerCase() === productName.toLowerCase())?.qrCode,
           category: field(row, ["category"]).trim() || undefined,
@@ -312,18 +353,25 @@ export default function ProductPage() {
   };
 
   const handleGenerateQR = async (product: ProductWithSales) => {
+    if (!product.inCatalog) {
+      showToast("warning", "Add this product to the catalog before generating its barcode.");
+      return;
+    }
     setGeneratingQrFor(product.name);
     let generatedBarcode: string | null = null;
     try {
       const barcode = product.barcode?.trim() || `KB${Date.now().toString().slice(-8)}${Math.floor(100 + Math.random() * 900)}`;
       generatedBarcode = barcode;
+      // Optimistically show the generated barcode in the All Products row
+      // while the QR image is created and the product record is saved.
+      setProductList((current) => current.map((item) => item.name === product.name ? { ...item, barcode } : item));
       const qrCode = await QRCode.toDataURL(barcode, { errorCorrectionLevel: "M", margin: 2, width: 256 });
-      // Show the generated barcode immediately while Firebase persists it.
       setProductList((current) => current.map((item) => item.name === product.name ? { ...item, barcode, qrCode } : item));
       const existing = allProducts.find((item) => item.name === product.name);
       const record: ProductRecord = {
         ...existing,
         name: product.name,
+        origin: "catalog",
         barcode,
         qrCode,
         category: existing?.category ?? product.category,
@@ -336,8 +384,9 @@ export default function ProductPage() {
         trackStock: existing?.trackStock ?? true,
         createdAt: existing?.createdAt ?? Date.now(),
       };
-      if (product.inCatalog) await updateProduct(product.name, record);
-      else await saveProduct(record);
+      // This row represents a product that may already exist in Firebase even
+      // when the cached list incorrectly marks it as uncatalogued.
+      await updateProduct(product.name, record);
       setProductList((current) => current.map((item) => item.name === product.name ? { ...item, barcode, qrCode, inCatalog: true } : item));
       setAllProducts((current) => [...current.filter((item) => item.name !== product.name), record]);
       showToast("success", `Generated and saved a QR code for ${product.name}.`);
@@ -351,14 +400,13 @@ export default function ProductPage() {
     }
   };
 
-  const handlePrintProductQR = async (product: ProductWithSales) => {
+  const handlePrintProductBarcode = (product: ProductWithSales) => {
     const barcode = product.barcode?.trim() || allProducts.find((item) => item.name === product.name)?.barcode?.trim();
     if (!barcode) return;
     try {
-      const qrCode = product.qrCode?.trim() || await QRCode.toDataURL(barcode, { errorCorrectionLevel: "M", margin: 2, width: 256 });
-      printProductQR({ ...product, barcode, qrCode });
+      printProductBarcodeTag({ ...product, barcode });
     } catch (printError) {
-      showToast("error", printError instanceof Error ? printError.message : "Could not create the product QR code.");
+      showToast("error", printError instanceof Error ? printError.message : "Could not create the product barcode tag.");
     }
   };
 
@@ -383,6 +431,7 @@ export default function ProductPage() {
     try {
       const record: ProductRecord = {
         name: productName,
+        origin: "catalog",
         barcode: newRow.barcode.trim() || undefined,
         mrp: mrpValue,
         sale: saleValue,
@@ -396,6 +445,18 @@ export default function ProductPage() {
       showToast("success", `${productName} added successfully!`);
       setIsAddingRow(false);
       setNewRow({ name: "", purchase: "", barcode: "", mrp: "", sale: "", size: "" });
+      refreshList();
+
+      if (returnToSales || newRow.barcode.trim()) {
+        try {
+          sessionStorage.removeItem("product_return_to_sales");
+        } catch {}
+        setTimeout(() => {
+          router.push(
+            `/sales?addedBarcode=${encodeURIComponent(record.barcode ?? "")}&addedProduct=${encodeURIComponent(productName)}`
+          );
+        }, 200);
+      }
     } catch (saveError) {
       setNewRowError(saveError instanceof Error ? saveError.message : "Could not save this product.");
     } finally {
@@ -434,6 +495,7 @@ export default function ProductPage() {
       const record: ProductRecord = {
         ...existing,
         name: productName,
+        origin: "catalog",
         barcode: inlineEditRow.barcode.trim() || undefined,
         mrp: mrpValue,
         sale: saleValue,
@@ -698,6 +760,7 @@ export default function ProductPage() {
         `KB${Date.now().toString().slice(-6)}${Math.floor(1000 + Math.random() * 9000)}`;
       const record: ProductRecord = {
         name: name.trim(),
+        origin: "catalog",
         barcode: generatedBarcode,
         qrCode: allProducts.find((item) => item.name === editingName)?.qrCode,
         category: category || undefined,
@@ -742,6 +805,20 @@ export default function ProductPage() {
       }
       refreshList();
       setTimeout(() => setSaved(false), 3000);
+
+      // Redirect to Sales page if returnToSales is true or after adding a new product
+      if (returnToSales || !editingName) {
+        try {
+          sessionStorage.removeItem("product_return_to_sales");
+        } catch {}
+        showToast("success", `${record.name} saved! Redirecting to Sales...`);
+        setTimeout(() => {
+          router.push(
+            `/sales?addedBarcode=${encodeURIComponent(record.barcode ?? "")}&addedProduct=${encodeURIComponent(record.name)}`
+          );
+        }, 200);
+        return;
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to save product.");
     } finally {
@@ -830,6 +907,7 @@ export default function ProductPage() {
                     Product Name <span className="text-red-500">*</span>
                   </label>
                   <input
+                    ref={nameInputRef}
                     type="text"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
@@ -1062,6 +1140,12 @@ export default function ProductPage() {
                 onClick={() => {
                   resetForm();
                   setShowForm(false);
+                  if (returnToSales) {
+                    try {
+                      sessionStorage.removeItem("product_return_to_sales");
+                    } catch {}
+                    router.push("/sales");
+                  }
                 }}
                 className={`px-4 py-2 text-xs font-semibold rounded-lg border shadow-sm flex items-center space-x-1 ${
                   editingName
@@ -1070,7 +1154,7 @@ export default function ProductPage() {
                 }`}
               >
                 {editingName && <X className="w-3.5 h-3.5" />}
-                <span>{editingName ? "Cancel Edit" : "Cancel"}</span>
+                <span>{editingName ? "Cancel Edit" : returnToSales ? "Cancel & Return to Sale" : "Cancel"}</span>
               </button>
               <div className="flex items-center space-x-2">
                 <button
@@ -1093,7 +1177,7 @@ export default function ProductPage() {
                   ) : (
                     <>
                       <Check className="w-3.5 h-3.5" />
-                      <span>Save Product</span>
+                      <span>{returnToSales ? "Save & Return to Sale" : "Save Product"}</span>
                     </>
                   )}
                 </button>
@@ -1134,7 +1218,12 @@ export default function ProductPage() {
           <div className="flex w-full flex-wrap items-center justify-end gap-3 xl:w-auto">
             <button type="button" onClick={() => {
               if (isAddingRow) { setIsAddingRow(false); setNewRowError(null); }
-              else { setNewRow({ name: "", purchase: "", barcode: "", mrp: "", sale: "", size: "" }); setNewRowError(null); setIsAddingRow(true); }
+              else {
+                setNewRow({ name: "", purchase: "", barcode: "", mrp: "", sale: "", size: "" });
+                setNewRowError(null);
+                setIsAddingRow(true);
+                requestAnimationFrame(() => newRowNameInputRef.current?.focus());
+              }
             }} className="flex items-center gap-1.5 rounded-md border border-emerald-700 border-b-4 bg-emerald-600 px-3 py-2 text-xs font-semibold text-white shadow-md transition hover:bg-emerald-700 active:translate-y-0.5 active:border-b-2 active:shadow-sm"><Plus className="h-4 w-4" />{isAddingRow ? "Cancel Add" : "Add Product"}</button>
             <button type="button" onClick={handleExport} className="flex items-center gap-1.5 rounded-md border border-blue-700 border-b-4 bg-blue-600 px-3 py-2 text-xs font-semibold text-white shadow-md transition hover:bg-blue-700 active:translate-y-0.5 active:border-b-2 active:shadow-sm"><Download className="h-4 w-4" /> Export</button>
             <button type="button" onClick={() => importInputRef.current?.click()} disabled={importing} className="flex items-center gap-1.5 rounded-md border border-pink-700 border-b-4 bg-pink-600 px-3 py-2 text-xs font-semibold text-white shadow-md transition hover:bg-pink-700 active:translate-y-0.5 active:border-b-2 active:shadow-sm disabled:opacity-50"><Upload className="h-4 w-4" />{importing ? "Importing..." : "Import"}</button>
@@ -1184,22 +1273,113 @@ export default function ProductPage() {
                 <>
                   <tr className="h-11 bg-amber-50">
                     <td className="sticky left-0 border border-slate-300 bg-amber-50 p-0">
-                      <input autoFocus aria-label="Product name" value={newRow.name} onChange={(event) => setNewRow((row) => ({ ...row, name: event.target.value }))} onKeyDown={(event) => { if (event.key === "Enter") void saveNewProductRow(); }} placeholder="Product name" className="w-full min-w-44 bg-transparent px-2 py-2 text-xs outline-none focus:bg-white focus:ring-1 focus:ring-inset focus:ring-blue-500" />
+                      <input
+                        ref={newRowNameInputRef}
+                        autoFocus
+                        aria-label="Product name"
+                        value={newRow.name}
+                        onChange={(event) => setNewRow((row) => ({ ...row, name: event.target.value }))}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter") {
+                            event.preventDefault();
+                            newRowPurchaseInputRef.current?.focus();
+                          }
+                        }}
+                        placeholder="Product name"
+                        className="w-full min-w-44 bg-transparent px-2 py-2 text-xs outline-none focus:bg-white focus:ring-1 focus:ring-inset focus:ring-blue-500"
+                      />
                     </td>
                     <td className="border border-slate-300 p-0">
-                      <input aria-label="Purchase price" type="number" min="0" value={newRow.purchase} onChange={(event) => setNewRow((row) => ({ ...row, purchase: event.target.value }))} onKeyDown={(event) => { if (event.key === "Enter") void saveNewProductRow(); }} placeholder="Purchase" className="w-full min-w-24 bg-transparent px-2 py-2 text-right text-xs outline-none focus:bg-white focus:ring-1 focus:ring-inset focus:ring-blue-500" />
+                      <input
+                        ref={newRowPurchaseInputRef}
+                        aria-label="Purchase price"
+                        type="number"
+                        min="0"
+                        value={newRow.purchase}
+                        onChange={(event) => setNewRow((row) => ({ ...row, purchase: event.target.value }))}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter") {
+                            event.preventDefault();
+                            if (newRow.barcode.trim()) {
+                              newRowMrpInputRef.current?.focus();
+                            } else {
+                              newRowBarcodeInputRef.current?.focus();
+                            }
+                          }
+                        }}
+                        placeholder="Purchase"
+                        className="w-full min-w-24 bg-transparent px-2 py-2 text-right text-xs outline-none focus:bg-white focus:ring-1 focus:ring-inset focus:ring-blue-500"
+                      />
                     </td>
                     <td className="border border-slate-300 p-0">
-                      <input aria-label="Barcode" value={newRow.barcode} onChange={(event) => setNewRow((row) => ({ ...row, barcode: event.target.value }))} onKeyDown={(event) => { if (event.key === "Enter") void saveNewProductRow(); }} placeholder="Barcode (optional)" className="w-full min-w-40 bg-transparent px-2 py-2 text-xs outline-none focus:bg-white focus:ring-1 focus:ring-inset focus:ring-blue-500" />
+                      <input
+                        ref={newRowBarcodeInputRef}
+                        aria-label="Barcode"
+                        value={newRow.barcode}
+                        onChange={(event) => setNewRow((row) => ({ ...row, barcode: event.target.value }))}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter") {
+                            event.preventDefault();
+                            newRowMrpInputRef.current?.focus();
+                          }
+                        }}
+                        placeholder="Barcode (optional)"
+                        className="w-full min-w-40 bg-transparent px-2 py-2 text-xs outline-none focus:bg-white focus:ring-1 focus:ring-inset focus:ring-blue-500"
+                      />
                     </td>
                     <td className="border border-slate-300 p-0">
-                      <input aria-label="MRP" type="number" min="0" step="0.01" value={newRow.mrp} onChange={(event) => setNewRow((row) => ({ ...row, mrp: event.target.value }))} onKeyDown={(event) => { if (event.key === "Enter") void saveNewProductRow(); }} placeholder="MRP" className="w-full min-w-24 bg-transparent px-2 py-2 text-right text-xs outline-none focus:bg-white focus:ring-1 focus:ring-inset focus:ring-blue-500" />
+                      <input
+                        ref={newRowMrpInputRef}
+                        aria-label="MRP"
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={newRow.mrp}
+                        onChange={(event) => setNewRow((row) => ({ ...row, mrp: event.target.value }))}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter") {
+                            event.preventDefault();
+                            newRowSaleInputRef.current?.focus();
+                          }
+                        }}
+                        placeholder="MRP"
+                        className="w-full min-w-24 bg-transparent px-2 py-2 text-right text-xs outline-none focus:bg-white focus:ring-1 focus:ring-inset focus:ring-blue-500"
+                      />
                     </td>
                     <td className="border border-slate-300 p-0">
-                      <input aria-label="Sale price" type="number" min="0" step="0.01" value={newRow.sale} onChange={(event) => setNewRow((row) => ({ ...row, sale: event.target.value }))} onKeyDown={(event) => { if (event.key === "Enter") void saveNewProductRow(); }} placeholder="Sale" className="w-full min-w-24 bg-transparent px-2 py-2 text-right text-xs outline-none focus:bg-white focus:ring-1 focus:ring-inset focus:ring-blue-500" />
+                      <input
+                        ref={newRowSaleInputRef}
+                        aria-label="Sale price"
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={newRow.sale}
+                        onChange={(event) => setNewRow((row) => ({ ...row, sale: event.target.value }))}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter") {
+                            event.preventDefault();
+                            newRowSizeInputRef.current?.focus();
+                          }
+                        }}
+                        placeholder="Sale"
+                        className="w-full min-w-24 bg-transparent px-2 py-2 text-right text-xs outline-none focus:bg-white focus:ring-1 focus:ring-inset focus:ring-blue-500"
+                      />
                     </td>
                     <td className="border border-slate-300 p-0">
-                      <input aria-label="Size" value={newRow.size} onChange={(event) => setNewRow((row) => ({ ...row, size: event.target.value }))} onKeyDown={(event) => { if (event.key === "Enter") void saveNewProductRow(); }} placeholder="Size" className="w-full min-w-20 bg-transparent px-2 py-2 text-xs outline-none focus:bg-white focus:ring-1 focus:ring-inset focus:ring-blue-500" />
+                      <input
+                        ref={newRowSizeInputRef}
+                        aria-label="Size"
+                        value={newRow.size}
+                        onChange={(event) => setNewRow((row) => ({ ...row, size: event.target.value }))}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter") {
+                            event.preventDefault();
+                            void saveNewProductRow();
+                          }
+                        }}
+                        placeholder="Size"
+                        className="w-full min-w-20 bg-transparent px-2 py-2 text-xs outline-none focus:bg-white focus:ring-1 focus:ring-inset focus:ring-blue-500"
+                      />
                     </td>
                     <td className="border border-slate-300 p-1">
                       <button type="button" onClick={() => void saveNewProductRow()} disabled={savingNewRow} className="w-full border border-blue-700 bg-blue-600 px-2 py-1.5 text-[10px] font-semibold text-white hover:bg-blue-700 disabled:opacity-50">{savingNewRow ? "Saving..." : "Save"}</button>
@@ -1238,7 +1418,7 @@ export default function ProductPage() {
                     </td>
                     <td className="border border-slate-200 px-1 py-1" onClick={(e) => e.stopPropagation()}>
                       {(p.barcode?.trim() || allProducts.find((product) => product.name === p.name)?.barcode?.trim()) ? (
-                        <button type="button" onClick={() => void handlePrintProductQR(p)} className="w-full border border-slate-300 bg-white px-2 py-1.5 text-[10px] font-semibold text-slate-700 hover:bg-slate-50" title={`Print QR code for ${p.name}`}>Print</button>
+                        <button type="button" onClick={() => handlePrintProductBarcode(p)} className="w-full border border-slate-300 bg-white px-2 py-1.5 text-[10px] font-semibold text-slate-700 hover:bg-slate-50" title={`Print barcode tag for ${p.name}`}>Print</button>
                       ) : (
                         <button type="button" onClick={() => void handleGenerateQR(p)} disabled={generatingQrFor === p.name} className="w-full border border-slate-300 bg-white px-2 py-1.5 text-[10px] font-semibold text-emerald-700 hover:bg-emerald-50 disabled:opacity-50" title={`Generate and save a QR code for ${p.name}`}>{generatingQrFor === p.name ? "Generating..." : "Generate"}</button>
                       )}

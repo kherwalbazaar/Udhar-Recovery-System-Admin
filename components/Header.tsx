@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { Crown, Bell, ChevronDown, RefreshCw } from "lucide-react";
 import { triggerBackgroundRefresh } from "@/lib/cache";
+import LiveAmountCard from "./LiveAmountCard";
 import HeaderNavigation from "./HeaderNavigation";
 
 export default function Header({ active = "Dashboard" }: { active?: string }) {
@@ -49,6 +50,7 @@ export default function Header({ active = "Dashboard" }: { active?: string }) {
         </div>
 
         <div className="flex shrink-0 items-center space-x-2 md:space-x-4">
+          <LiveAmountCard variant="tab" />
           <button
             type="button"
             onClick={handleRefresh}
@@ -80,7 +82,9 @@ export default function Header({ active = "Dashboard" }: { active?: string }) {
           </div>
         </div>
       </div>
-      {active !== "Product" && <HeaderNavigation active={active} />}
+      {active !== "Product" && active !== "Sales" && (
+        <HeaderNavigation active={active} />
+      )}
     </header>
   );
 }

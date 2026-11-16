@@ -93,7 +93,7 @@ export default function LiveAmountCard({
     void fetchLatestAmount();
 
     const channel = client
-      .channel("admin-amount-value-live")
+      .channel(`admin-amount-value-live-${crypto.randomUUID()}`)
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "amount_value" },

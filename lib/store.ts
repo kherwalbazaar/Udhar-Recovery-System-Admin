@@ -1,12 +1,22 @@
-import { ref, push, update } from "firebase/database";
+import { ref, push, set, update } from "firebase/database";
 import { db } from "./firebase";
-import { getWithCache, CACHE_KEYS, triggerActionRefresh } from "./cache";
+import {
+  getWithCache,
+  CACHE_KEYS,
+  readCache,
+  triggerActionRefresh,
+  triggerBackgroundRefresh,
+  writeCache,
+} from "./cache";
 
 export type Product = {
   name: string;
   barcode?: string;
+  purchase?: number;
   mrp: number;
   sale: number;
+  size?: string;
+  inCatalog?: boolean;
   createdAt?: number;
 };
 
@@ -14,6 +24,7 @@ export type CustomerSummary = {
   id: string;
   name: string;
   phone: string;
+  address?: string;
   totalAmount: number;
 };
 
@@ -38,7 +49,15 @@ export async function fetchProducts(): Promise<Product[]> {
   const raw = snap.val() as
     | Record<
         string,
-        { name?: string; barcode?: string; mrp?: number; sale?: number; createdAt?: number }
+        {
+          name?: string;
+          barcode?: string;
+          cost?: number | string;
+          mrp?: number;
+          sale?: number;
+          unit?: string;
+          createdAt?: number;
+        }
       >
     | null;
 
@@ -52,8 +71,11 @@ export async function fetchProducts(): Promise<Product[]> {
       byName.set(name, {
         name,
         barcode: p.barcode ? String(p.barcode) : undefined,
+        purchase: p.cost != null ? Number(p.cost) : undefined,
         mrp,
         sale: sale > 0 ? sale : mrp,
+        size: p.unit ? String(p.unit) : undefined,
+        inCatalog: true,
         createdAt: Number(p.createdAt ?? 0),
       });
     }
@@ -89,6 +111,7 @@ export async function fetchProducts(): Promise<Product[]> {
         name,
         mrp,
         sale: salePrice > 0 ? salePrice : mrp,
+        inCatalog: false,
         createdAt: Number(r.createdAt ?? 0),
       });
     }
@@ -108,7 +131,12 @@ export async function fetchCustomers(): Promise<CustomerSummary[]> {
   const raw = snap.val() as
     | Record<
         string,
-        { name?: string; phone?: string; totalAmount?: number }
+        {
+          name?: string;
+          phone?: string;
+          address?: string;
+          totalAmount?: number;
+        }
       >
     | null;
   if (!raw) return [];
@@ -117,8 +145,59 @@ export async function fetchCustomers(): Promise<CustomerSummary[]> {
     id,
     name: String(c.name ?? ""),
     phone: String(c.phone ?? ""),
+    address: c.address ? String(c.address) : undefined,
     totalAmount: Number(c.totalAmount ?? 0),
   }));
+}
+
+export async function createCustomer(input: {
+  name: string;
+  phone: string;
+  address: string;
+}): Promise<CustomerSummary> {
+  const name = input.name.trim();
+  const phone = input.phone.trim();
+  const address = input.address.trim();
+  if (!name || !phone || !address) {
+    throw new Error("Name, mobile number, and address are required.");
+  }
+
+  const customerRef = push(ref(db, "customers"));
+  if (!customerRef.key) throw new Error("Could not create a customer record.");
+
+  const customer: CustomerSummary = {
+    id: customerRef.key,
+    name,
+    phone,
+    address,
+    totalAmount: 0,
+  };
+
+  await set(customerRef, { ...customer, createdAt: Date.now() });
+
+  const cached = readCache<unknown>(CACHE_KEYS.CUSTOMERS);
+  if (Array.isArray(cached)) {
+    // Older cache versions may store a customer array. Convert it back to the
+    // Firebase key/value shape used by fetchCustomers and the live listeners.
+    const customerMap = Object.fromEntries(
+      cached
+        .filter(
+          (item): item is CustomerSummary =>
+            Boolean(item) &&
+            typeof item === "object" &&
+            typeof (item as CustomerSummary).id === "string"
+        )
+        .map((item) => [item.id, item])
+    );
+    customerMap[customer.id] = customer;
+    writeCache(CACHE_KEYS.CUSTOMERS, customerMap);
+  } else if (cached && typeof cached === "object") {
+    const customerMap = { ...(cached as Record<string, unknown>) };
+    customerMap[customer.id] = customer;
+    writeCache(CACHE_KEYS.CUSTOMERS, customerMap);
+  }
+  triggerBackgroundRefresh();
+  return customer;
 }
 
 export async function submitSale(params: {

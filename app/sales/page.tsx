@@ -1,20 +1,19 @@
 "use client";
 
-import { useCallback, useEffect, useState, useRef } from "react";
-import dynamic from "next/dynamic";
+import { useCallback, useEffect, useState, useRef, type KeyboardEvent } from "react";
+import Link from "next/link";
 import {
-  Search,
+  ArrowLeft,
   ShoppingCart,
   UserPlus,
   Trash2,
-  Info,
   Wallet,
   Check,
   Minus,
   Plus,
   X,
   AlertCircle,
-  ChevronDown,
+  Printer,
 } from "lucide-react";
 import AppShell from "@/components/AppShell";
 import { useToast } from "@/components/ToastProvider";
@@ -22,23 +21,23 @@ import OptionalSupabaseAdminSignIn from "@/components/OptionalSupabaseAdminSignI
 import {
   fetchProducts,
   fetchCustomers,
+  createCustomer,
   submitSale,
   type Product,
   type CustomerSummary,
 } from "@/lib/store";
 import { saveProduct } from "@/lib/products";
 import { savePayableAmount } from "@/lib/supabase";
-
-const LiveAmountCard = dynamic(
-  () => import("@/components/LiveAmountCard"),
-  { ssr: false }
-);
+import QRCode from "qrcode";
 
 type CartItem = {
   name: string;
   chipBg: string;
+  purchase: number;
+  barcode: string;
   mrp: number;
   sale: number;
+  size: string;
   qty: number;
 };
 
@@ -64,21 +63,30 @@ const fmt = (n: number) =>
     maximumFractionDigits: 2,
   });
 
+const GST_RATE = 18;
+
 export default function AddSalePage() {
   const { showToast } = useToast();
-  const [mounted, setMounted] = useState(false);
   const [products, setProducts] = useState<Product[]>([]);
   const [productsLoading, setProductsLoading] = useState(true);
   const [customers, setCustomers] = useState<CustomerSummary[]>([]);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [search, setSearch] = useState("");
-  const [customerListOpen, setCustomerListOpen] = useState(false);
+  const [productTab, setProductTab] = useState<"scan" | "add">("scan");
+  const [scanCode, setScanCode] = useState("");
   const [selectedCustomer, setSelectedCustomer] =
     useState<CustomerSummary | null>(null);
+  const [customerName, setCustomerName] = useState("");
+  const [activeCustomerSuggestion, setActiveCustomerSuggestion] = useState(-1);
+  const [customerPhone, setCustomerPhone] = useState("");
+  const [customerAddress, setCustomerAddress] = useState("");
+  const [customerSaveError, setCustomerSaveError] = useState<string | null>(null);
+  const [customerSaving, setCustomerSaving] = useState(false);
   const [priceInputs, setPriceInputs] = useState<Record<string, number>>({});
-  const [discount, setDiscount] = useState(0);
+  const [cgstAmount, setCgstAmount] = useState(0);
   const [received, setReceived] = useState(0);
   const [receivedTouched, setReceivedTouched] = useState(false);
+  const [autoSendWhatsapp, setAutoSendWhatsapp] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [pendingPayable, setPendingPayable] = useState<number | null>(null);
   const [syncingPayable, setSyncingPayable] = useState(false);
@@ -94,15 +102,13 @@ export default function AddSalePage() {
   const [qaError, setQaError] = useState<string | null>(null);
   const [qaSaving, setQaSaving] = useState(false);
   const [barcodeNotice, setBarcodeNotice] = useState<string | null>(null);
+  const [missingBarcode, setMissingBarcode] = useState<string | null>(null);
 
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const scanInputRef = useRef<HTMLInputElement>(null);
 
   const genSku = () =>
     `KB${Date.now().toString().slice(-6)}${Math.floor(1000 + Math.random() * 9000)}`;
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
 
   useEffect(() => {
     let active = true;
@@ -112,6 +118,46 @@ export default function AddSalePage() {
         setProducts(p);
         setPriceInputs(Object.fromEntries(p.map((x) => [x.name, x.sale])));
         setProductsLoading(false);
+
+        // If returned from adding a product, automatically add it to cart
+        if (typeof window !== "undefined") {
+          const params = new URLSearchParams(window.location.search);
+          const addedBarcode = (params.get("addedBarcode") || params.get("barcode") || "").trim().toLowerCase();
+          const addedProduct = (params.get("addedProduct") || "").trim().toLowerCase();
+
+          if (addedBarcode || addedProduct) {
+            const match = p.find((item) => {
+              if (addedBarcode && item.barcode?.trim().toLowerCase() === addedBarcode) return true;
+              if (addedProduct && item.name.trim().toLowerCase() === addedProduct) return true;
+              return false;
+            });
+
+            if (match) {
+              setCart((prev) => {
+                const existing = prev.find((i) => i.name === match.name);
+                if (existing) {
+                  return prev.map((i) =>
+                    i.name === match.name ? { ...i, qty: i.qty + 1 } : i
+                  );
+                }
+                return [
+                  ...prev,
+                  {
+                    name: match.name,
+                    chipBg: chipColor(match.name),
+                    purchase: match.purchase ?? 0,
+                    barcode: match.barcode ?? "",
+                    mrp: match.mrp,
+                    sale: match.sale,
+                    size: match.size ?? "",
+                    qty: 1,
+                  },
+                ];
+              });
+              window.history.replaceState({}, "", "/sales");
+            }
+          }
+        }
       })
       .catch((e: Error) => {
         if (!active) return;
@@ -129,13 +175,16 @@ export default function AddSalePage() {
   }, []);
 
   useEffect(() => {
-    if (!productsLoading && searchInputRef.current) {
-      searchInputRef.current.focus();
+    if (!productsLoading && productTab === "scan" && scanInputRef.current) {
+      scanInputRef.current.focus();
     }
-  }, [productsLoading]);
+  }, [productsLoading, productTab]);
 
   const subtotal = cart.reduce((sum, item) => sum + item.sale * item.qty, 0);
-  const payable = Math.max(0, subtotal - discount);
+  const gstAmount = Number((subtotal * GST_RATE / 100).toFixed(2));
+  const discount = Number((gstAmount + cgstAmount).toFixed(2));
+  const totalWithTax = subtotal + gstAmount + cgstAmount;
+  const payable = Math.ceil(Math.max(0, Number((totalWithTax - discount).toFixed(2))));
 
   useEffect(() => {
     if (!receivedTouched) setReceived(selectedCustomer ? 0 : payable);
@@ -155,12 +204,80 @@ export default function AddSalePage() {
         {
           name: product.name,
           chipBg: chipColor(product.name),
+          purchase: product.purchase ?? 0,
+          barcode: product.barcode ?? "",
           mrp: product.mrp,
           sale: price,
+          size: product.size ?? "",
           qty: 1,
         },
       ];
     });
+  };
+
+  const handleBarcodeScan = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    const code = scanCode.trim().toLocaleLowerCase();
+    if (!code) return;
+    const product = products.find(
+      (item) => item.barcode?.trim().toLocaleLowerCase() === code
+    );
+    if (!product) {
+      const missingCode = scanCode.trim();
+      setBarcodeNotice(`No product found for barcode “${missingCode}”.`);
+      setMissingBarcode(missingCode);
+      setScanCode("");
+      return;
+    }
+    addToCart(product);
+    setBarcodeNotice(null);
+    setMissingBarcode(null);
+    setScanCode("");
+    requestAnimationFrame(() => scanInputRef.current?.focus());
+  };
+
+  const selectCustomer = (customer: CustomerSummary) => {
+    setSelectedCustomer(customer);
+    setCustomerName("");
+    setActiveCustomerSuggestion(-1);
+    setCustomerPhone("");
+    setCustomerAddress("");
+    setCustomerSaveError(null);
+    setProductTab("scan");
+    requestAnimationFrame(() => scanInputRef.current?.focus());
+  };
+
+  const saveNewCustomer = async () => {
+    const name = customerName.trim();
+    const phone = customerPhone.trim();
+    const address = customerAddress.trim();
+    if (!name || !phone || !address) {
+      setCustomerSaveError("Enter the customer name, mobile number, and address.");
+      return;
+    }
+
+    const existing = customers.find(
+      (customer) => customer.name.trim().toLowerCase() === name.toLowerCase()
+    );
+    if (existing) {
+      setCustomerSaveError("This customer already exists. Select them from the suggestions.");
+      return;
+    }
+
+    setCustomerSaving(true);
+    setCustomerSaveError(null);
+    try {
+      const customer = await createCustomer({ name, phone, address });
+      setCustomers((current) => [customer, ...current]);
+      selectCustomer(customer);
+    } catch (saveError) {
+      setCustomerSaveError(
+        saveError instanceof Error ? saveError.message : "Could not save customer."
+      );
+    } finally {
+      setCustomerSaving(false);
+    }
   };
 
   const handleQuickAdd = async () => {
@@ -189,6 +306,7 @@ export default function AddSalePage() {
       const barcode = qaBarcode.trim() || genSku();
       await saveProduct({
         name,
+        origin: "sales",
         barcode,
         category: qaCategory,
         mrp,
@@ -197,7 +315,7 @@ export default function AddSalePage() {
         trackStock: true,
         createdAt: Date.now(),
       });
-      addToCart({ name, mrp, sale });
+      addToCart({ name, barcode, purchase: 0, mrp, sale, size: "" });
       setProducts((prev) => [
         { name, mrp, sale, createdAt: Date.now() },
         ...prev.filter((x) => x.name !== name),
@@ -256,7 +374,76 @@ export default function AddSalePage() {
 
   const clearCart = () => setCart([]);
 
-  const handleSubmit = async () => {
+  const handlePrintReceipt = async () => {
+    if (!selectedCustomer || cart.length === 0) return;
+    if (payable <= 0) {
+      showToast("warning", "The bill total must be greater than zero to make a payment QR.");
+      return;
+    }
+    const printWindow = window.open("", "_blank", "width=480,height=640");
+    if (!printWindow) {
+      showToast("warning", "Allow pop-ups to print the receipt.");
+      return;
+    }
+    try {
+      const escapeHtml = (value: string) =>
+        value.replace(/[&<>"']/g, (char) => ({
+          "&": "&amp;",
+          "<": "&lt;",
+          ">": "&gt;",
+          '"': "&quot;",
+          "'": "&#39;",
+        })[char] ?? char);
+      const upiId = process.env.NEXT_PUBLIC_UPI_ID?.trim();
+      const upiName = process.env.NEXT_PUBLIC_UPI_NAME?.trim() || "KHERWAL BAZAAR";
+      const paymentParams = new URLSearchParams({
+        pa: upiId || "",
+        pn: upiName,
+        am: payable.toFixed(2),
+        cu: "INR",
+        tn: `Sale for ${selectedCustomer.name}`,
+      });
+      const qrCode = upiId
+        ? await QRCode.toDataURL(`upi://pay?${paymentParams.toString()}`, {
+            errorCorrectionLevel: "M",
+            margin: 1,
+            width: 512,
+          })
+        : null;
+      const rows = cart.map((item) => `
+        <tr><td>${escapeHtml(item.name)}</td><td class="center">${item.qty}</td><td class="right">₹${fmt(item.sale * item.qty)}</td></tr>
+      `).join("");
+      printWindow.onload = () => printWindow.print();
+      printWindow.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Sales Bill</title><style>
+        @page{size:76.2mm auto;margin:0}
+        *{box-sizing:border-box}
+        html,body{width:76.2mm;margin:0;padding:0;color:#000;background:#fff;font:11px Arial,Helvetica,sans-serif}
+        body{padding:3mm 4mm}
+        h1{margin:0;text-align:center;font-size:15px;font-weight:800;letter-spacing:.3px}
+        .subtitle{text-align:center;margin:1mm 0 3mm;font-size:10px}
+        .meta{margin:0 0 3mm;line-height:1.5}
+        table{width:100%;border-collapse:collapse}
+        th,td{padding:1.4mm 0;border-bottom:1px dashed #777;vertical-align:top}
+        th{text-align:left;font-size:10px}
+        .center{text-align:center}.right{text-align:right;white-space:nowrap}
+        .summary{margin-top:2mm}.summary div{display:flex;justify-content:space-between;padding:.8mm 0}
+        .total{margin-top:1mm;padding-top:1.5mm;border-top:1px solid #000;font-size:14px;font-weight:800}
+        .payment{margin-top:4mm;padding-top:3mm;border-top:1px dashed #555;text-align:center}
+        .payment img{display:block;width:46mm;height:46mm;margin:2mm auto;image-rendering:pixelated}
+        .note{font-size:9px;line-height:1.4}.unconfigured{margin-top:3mm;font-size:9px}
+        </style></head><body><h1>KHERWAL BAZAAR</h1><div class="subtitle">Sales Bill</div><p class="meta"><strong>Customer:</strong> ${escapeHtml(selectedCustomer.name)}<br><strong>Mobile:</strong> ${escapeHtml(selectedCustomer.phone)}<br><strong>Date:</strong> ${escapeHtml(new Date().toLocaleString("en-IN"))}</p><table><thead><tr><th>Product</th><th class="center">Qty</th><th class="right">Amount</th></tr></thead><tbody>${rows}</tbody></table><div class="summary"><div><span>Product Amount</span><span>₹${fmt(subtotal)}</span></div><div><span>GST (${GST_RATE}%)</span><span>₹${fmt(gstAmount)}</span></div><div><span>CGST</span><span>₹${fmt(cgstAmount)}</span></div><div><span>Total</span><span>₹${fmt(totalWithTax)}</span></div><div><span>Discount</span><span>−₹${fmt(discount)}</span></div><div class="total"><span>Net Pay</span><span>₹${fmt(payable)}</span></div><div><span>Received</span><span>₹${fmt(received)}</span></div><div><span>Balance</span><span>₹${fmt(Math.max(0, payable - received))}</span></div></div>${qrCode ? `<div class="payment"><strong>Scan to Pay ₹${fmt(payable)}</strong><img src="${qrCode}" alt="UPI payment QR code"><div class="note">UPI ID: ${escapeHtml(upiId!)}<br>Thank you for shopping with us!</div></div>` : `<div class="payment unconfigured">UPI QR is unavailable. Configure NEXT_PUBLIC_UPI_ID to print payment QR codes.</div>`}</body></html>`);
+      printWindow.document.close();
+    } catch (printError) {
+      printWindow.close();
+      showToast("error", printError instanceof Error ? printError.message : "Could not generate the thermal bill.");
+    }
+  };
+
+  const handleSubmit = async (quickPay = false) => {
+    if (!selectedCustomer) {
+      setError("Select a customer before submitting this sale.");
+      return;
+    }
     if (cart.length === 0) return;
     const finalPayable = Number(payable.toFixed(2));
     if (finalPayable <= 0) {
@@ -267,6 +454,15 @@ export default function AddSalePage() {
       setError("Sync the previous sale amount before submitting another sale.");
       return;
     }
+
+    const receivedAmount = quickPay ? finalPayable : received;
+    if (quickPay) {
+      setReceived(receivedAmount);
+      setReceivedTouched(true);
+    }
+    const whatsappWindow = autoSendWhatsapp
+      ? window.open("about:blank", "_blank")
+      : null;
 
     setSubmitting(true);
     setError(null);
@@ -281,12 +477,46 @@ export default function AddSalePage() {
         })),
         saleType: selectedCustomer ? "credit" : "cash",
         customer: selectedCustomer,
-        received,
+        received: receivedAmount,
       });
 
+      if (autoSendWhatsapp && selectedCustomer.phone.trim()) {
+        const digits = selectedCustomer.phone.replace(/\D/g, "");
+        const whatsappPhone = digits.length === 10
+          ? `91${digits}`
+          : digits.startsWith("0") && digits.length === 11
+            ? `91${digits.slice(1)}`
+            : digits;
+        const message = [
+          "*KHERWAL BAZAAR*",
+          "Sale receipt",
+          `Customer: ${selectedCustomer.name}`,
+          "",
+          ...cart.map((item) => `${item.name} × ${item.qty} — ₹${fmt(item.sale * item.qty)}`),
+          `GST (${GST_RATE}%): ₹${fmt(gstAmount)}`,
+          `CGST: ₹${fmt(cgstAmount)}`,
+          `Total: ₹${fmt(totalWithTax)}`,
+          `Discount: ₹${fmt(discount)}`,
+          `Net Pay: ₹${fmt(finalPayable)}`,
+          `Received: ₹${fmt(receivedAmount)}`,
+          `Balance: ₹${fmt(Math.max(0, finalPayable - receivedAmount))}`,
+        ].join("\n");
+        const whatsappUrl = `https://wa.me/${whatsappPhone}?text=${encodeURIComponent(message)}`;
+        if (whatsappWindow && !whatsappWindow.closed) {
+          whatsappWindow.location.href = whatsappUrl;
+        } else {
+          showToast("warning", "Allow pop-ups to open the WhatsApp receipt.");
+        }
+      }
+
       setCart([]);
-      setDiscount(0);
+      setCgstAmount(0);
       setSelectedCustomer(null);
+      setCustomerName("");
+      setCustomerPhone("");
+      setCustomerAddress("");
+      setCustomerSaveError(null);
+      setAutoSendWhatsapp(false);
       setReceivedTouched(false);
       setPendingPayable(finalPayable);
 
@@ -300,6 +530,7 @@ export default function AddSalePage() {
         );
       }
     } catch (e) {
+      whatsappWindow?.close();
       setError(e instanceof Error ? e.message : "Failed to submit sale.");
     } finally {
       setSubmitting(false);
@@ -358,122 +589,92 @@ export default function AddSalePage() {
     ? filteredProducts
     : filteredProducts.slice(0, 10);
 
-  const renderHighlightedSaleName = (productName: string) => {
-    const q = search.trim().toLowerCase().replace(/\s+/g, " ");
-    if (!q) return <>{productName}</>;
-    const qWords = q.split(" ").filter(Boolean);
-    const words = productName.split(/\s+/);
-    const lowerWords = words.map((w) => w.toLowerCase());
-    const initials = lowerWords.map((w) => w[0]).join("");
-    const hl = (word: string, len: number) => {
-      if (len <= 0 || len > word.length) return <>{word}</>;
-      return (
-        <>
-          <span className="bg-yellow-200 font-bold text-blue-700">{word.slice(0, len)}</span>
-          {word.slice(len)}
-        </>
-      );
-    };
-    if (qWords.length > 1) {
-      return (
-        <>
-          {words.map((w, i) => (
-            <span key={i}>
-              {i > 0 ? " " : ""}
-              {i < qWords.length && lowerWords[i].startsWith(qWords[i]) ? hl(w, qWords[i].length) : w}
-            </span>
-          ))}
-        </>
-      );
-    }
-    if (qWords.length === 1 && q.length > 1 && initials.startsWith(q) && q.length === words.length) {
-      return (
-        <>
-          {words.map((w, i) => (
-            <span key={i}>
-              {i > 0 ? " " : ""}
-              {i < q.length ? hl(w, 1) : w}
-            </span>
-          ))}
-        </>
-      );
-    }
-    const qw = qWords[0];
-    let highlighted = false;
-    return (
-      <>
-        {words.map((w, i) => {
-          const lw = lowerWords[i];
-          if (!highlighted && lw.startsWith(qw)) {
-            highlighted = true;
-            return (
-              <span key={i}>
-                {i > 0 ? " " : ""}
-                {hl(w, qw.length)}
-              </span>
-            );
-          }
-          return (
-            <span key={i}>
-              {i > 0 ? " " : ""}
-              {w}
-            </span>
-          );
-        })}
-      </>
-    );
-  };
-
   const chip = (name: string) => name.charAt(0).toUpperCase();
+  const customerQuery = customerName.trim().toLocaleLowerCase();
+  const matchingCustomers = customerQuery
+    ? customers
+        .filter((customer) =>
+          customer.name.trim().toLocaleLowerCase().includes(customerQuery)
+        )
+        .sort((a, b) => {
+          const aStartsWith = a.name.trim().toLocaleLowerCase().startsWith(customerQuery);
+          const bStartsWith = b.name.trim().toLocaleLowerCase().startsWith(customerQuery);
+          return Number(bStartsWith) - Number(aStartsWith);
+        })
+        .slice(0, 8)
+    : [];
+
+  const handleCustomerNameKeyDown = (
+    event: KeyboardEvent<HTMLInputElement>
+  ) => {
+    if (!matchingCustomers.length) return;
+
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      setActiveCustomerSuggestion((current) =>
+        current < 0 ? 0 : (current + 1) % matchingCustomers.length
+      );
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      setActiveCustomerSuggestion((current) =>
+        current < 0
+          ? matchingCustomers.length - 1
+          : (current - 1 + matchingCustomers.length) % matchingCustomers.length
+      );
+    } else if (event.key === "Enter") {
+      event.preventDefault();
+      selectCustomer(matchingCustomers[activeCustomerSuggestion >= 0 ? activeCustomerSuggestion : 0]);
+    } else if (event.key === "Escape") {
+      setActiveCustomerSuggestion(-1);
+    }
+  };
 
   return (
     <AppShell title="" active="Sales">
-      <div className="flex flex-wrap md:flex-nowrap items-center justify-between gap-2">
+      <div className="flex items-center gap-2">
+        <Link
+          href="/"
+          aria-label="Go to home"
+          title="Go to home"
+          className="flex h-8 w-8 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 shadow-sm transition hover:bg-slate-100 hover:text-slate-900"
+        >
+          <ArrowLeft className="h-4 w-4" />
+        </Link>
+        <ShoppingCart className="h-5 w-5 text-violet-700" aria-hidden="true" />
         <h1 className="text-xl font-bold text-slate-800">Sales</h1>
-
-        <div className="flex flex-wrap items-center gap-2">
-          <LiveAmountCard variant="tab" />
-          {mounted && (
-            <a
-              href="/sales-report"
-              className="text-xs text-slate-600 font-medium hover:text-slate-900 flex items-center"
-            >
-              Sales Report
-            </a>
-          )}
-        </div>
       </div>
 
-      <div className="grid grid-cols-12 gap-4">
+      <div suppressHydrationWarning className="grid grid-cols-12 gap-4">
         {/* LEFT SECTION: FORM AND PRODUCT SELECTION */}
-        <div className="col-span-5 space-y-2">
+        <div className="col-span-12 space-y-2">
           {/* 1. Customer Section */}
-          <div className="bg-white rounded-xl p-4 border border-slate-200">
-            <h3 className="text-xs font-bold text-slate-800 mb-2">
-              1. Customer{" "}
-              <span className="font-normal text-slate-400">
-                (Required for Credit Sale)
-              </span>
-            </h3>
+          <div suppressHydrationWarning className="bg-white rounded-none p-4 border border-slate-200">
+            <h3 suppressHydrationWarning className="text-xs font-bold text-slate-800 mb-2">1. Customer</h3>
 
             {selectedCustomer ? (
-              <div className="flex items-center justify-between bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
-                <div className="flex items-center space-x-2">
+              <div className="flex items-center justify-between bg-emerald-50 border border-emerald-200 rounded-none px-3 py-2">
+                <div className="flex min-w-0 items-center space-x-2">
                   <span className="w-7 h-7 rounded-full bg-emerald-500 text-white text-xs flex items-center justify-center font-medium">
                     {selectedCustomer.name.charAt(0).toUpperCase()}
                   </span>
-                  <div>
+                  <div className="min-w-0">
                     <p className="text-xs font-medium text-slate-800">
                       {selectedCustomer.name}
                     </p>
                     <p className="text-[10px] text-slate-400">
-                      {selectedCustomer.phone}
+                      {selectedCustomer.phone} · {selectedCustomer.address || "No address"}
                     </p>
                   </div>
                 </div>
                 <button
                   type="button"
-                  onClick={() => setSelectedCustomer(null)}
+                  onClick={() => {
+                    setSelectedCustomer(null);
+                    setCustomerName("");
+                    setCustomerPhone("");
+                    setCustomerAddress("");
+                    setCustomerSaveError(null);
+                  }}
                   className="text-slate-400 hover:text-red-500"
                   aria-label="Clear customer"
                 >
@@ -481,169 +682,258 @@ export default function AddSalePage() {
                 </button>
               </div>
             ) : (
-              <>
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-12 md:items-end">
+                <div className="relative md:col-span-3">
+                  <input
+                    id="sales-customer-name"
+                    type="text"
+                    autoComplete="off"
+                    aria-label="Input Name"
+                    value={customerName}
+                    role="combobox"
+                    aria-autocomplete="list"
+                    aria-expanded={matchingCustomers.length > 0}
+                    aria-controls="sales-customer-suggestions"
+                    aria-activedescendant={
+                      activeCustomerSuggestion >= 0 && matchingCustomers[activeCustomerSuggestion]
+                        ? `sales-customer-suggestion-${matchingCustomers[activeCustomerSuggestion].id}`
+                        : undefined
+                    }
+                    onKeyDown={handleCustomerNameKeyDown}
+                    onChange={(event) => {
+                      setCustomerName(event.target.value);
+                      setActiveCustomerSuggestion(-1);
+                      setCustomerSaveError(null);
+                    }}
+                    placeholder="Input Name"
+                    className="w-full border border-slate-300 bg-white px-3 py-2 text-xs outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                  />
+                  {matchingCustomers.length > 0 && (
+                    <div
+                      id="sales-customer-suggestions"
+                      role="listbox"
+                      className="absolute left-0 right-0 top-full z-30 max-h-52 overflow-y-auto border border-slate-300 bg-white shadow-lg"
+                    >
+                      {matchingCustomers.map((customer, index) => (
+                        <button
+                          key={customer.id}
+                          id={`sales-customer-suggestion-${customer.id}`}
+                          type="button"
+                          role="option"
+                          aria-selected={activeCustomerSuggestion === index}
+                          onClick={() => selectCustomer(customer)}
+                          className={`flex w-full items-center justify-between border-b border-slate-100 px-3 py-2 text-left hover:bg-blue-100 ${activeCustomerSuggestion === index ? "bg-blue-200 hover:bg-blue-200" : ""}`}
+                        >
+                          <span className="text-xs font-medium text-slate-800">
+                            {customer.name}
+                          </span>
+                          <span className="ml-3 text-[10px] text-slate-500">
+                            {customer.phone}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="md:col-span-3">
+                  <input
+                    id="sales-customer-phone"
+                    type="tel"
+                    inputMode="tel"
+                    aria-label="Mobile Number"
+                    value={customerPhone}
+                    onChange={(event) => {
+                      setCustomerPhone(event.target.value);
+                      setCustomerSaveError(null);
+                    }}
+                    placeholder="Mobile Number"
+                    className="w-full border border-slate-300 bg-white px-3 py-2 text-xs outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                  />
+                </div>
+
+                <div className="md:col-span-4">
+                  <input
+                    id="sales-customer-address"
+                    type="text"
+                    aria-label="Address"
+                    value={customerAddress}
+                    onChange={(event) => {
+                      setCustomerAddress(event.target.value);
+                      setCustomerSaveError(null);
+                    }}
+                    placeholder="Address"
+                    className="w-full border border-slate-300 bg-white px-3 py-2 text-xs outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                  />
+                </div>
+
                 <button
                   type="button"
-                  onClick={() => setCustomerListOpen((o) => !o)}
-                  className="w-full flex items-center justify-between text-xs bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 mb-2 text-slate-700 hover:bg-slate-100"
+                  onClick={() => void saveNewCustomer()}
+                  disabled={
+                    customerSaving ||
+                    !customerName.trim() ||
+                    !customerPhone.trim() ||
+                    !customerAddress.trim()
+                  }
+                  className="h-[34px] bg-blue-600 px-4 text-xs font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 md:col-span-2"
                 >
-                  <span>Select customer</span>
-                  <ChevronDown
-                    className={`w-3.5 h-3.5 transition-transform ${
-                      customerListOpen ? "rotate-180" : ""
-                    }`}
-                  />
+                  {customerSaving ? "Saving..." : "Save"}
                 </button>
 
-                {customerListOpen && customers.length > 0 && (
-                  <div className="border border-slate-200 rounded-lg divide-y divide-slate-100 max-h-48 overflow-y-auto mb-2">
-                    {customers.map((c) => (
-                      <button
-                        key={c.id}
-                        type="button"
-                        onClick={() => {
-                          setSelectedCustomer(c);
-                          setCustomerListOpen(false);
-                        }}
-                        className="w-full flex items-center justify-between px-3 py-2 hover:bg-slate-50 text-left"
-                      >
-                        <div className="flex items-center space-x-2">
-                          <span className="w-6 h-6 rounded-full bg-red-500 text-white text-[10px] flex items-center justify-center font-semibold">
-                            {c.name.charAt(0).toUpperCase()}
-                          </span>
-                          <span className="text-xs font-medium text-slate-700">
-                            {c.name}
-                          </span>
-                        </div>
-                        <span className="text-[10px] font-semibold text-red-600">
-                          ₹{Math.round(c.totalAmount)}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
+                {customerSaveError && (
+                  <p role="alert" className="text-xs font-medium text-red-600 md:col-span-12">
+                    {customerSaveError}
+                  </p>
                 )}
-              </>
+              </div>
+            )}
+            {cart.length > 0 && !selectedCustomer && (
+              <p role="status" className="mt-2 text-xs font-medium text-amber-700">
+                Select a customer before recording this sale.
+              </p>
             )}
           </div>
 
-          {/* 2. Select Product & Add to Cart */}
-          <div className="bg-white rounded-xl p-4 border border-slate-200">
-            <h3 className="text-xs font-bold text-slate-800 mb-3">
-              2. Select Product &amp; Add to Cart
-            </h3>
-
-            <div className="flex items-center space-x-2 mb-4">
-              <div className="relative flex-1">
-                <span className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-slate-400">
-                  <Search className="w-3.5 h-3.5" />
-                </span>
-                <div className="rounded-lg p-0.5 animate-multicolor">
-                  <input
-                    ref={searchInputRef}
-                    type="text"
-                    value={search}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      setSearch(val);
-                      const trimmed = val.trim();
-                      if (!trimmed) return;
-                      const matched = products.find(
-                        (p) => p.barcode && p.barcode === trimmed
-                      );
-                      if (matched) {
-                        addToCart(matched);
-                        setBarcodeNotice(`"${matched.name}" added to cart`);
-                        setTimeout(() => setBarcodeNotice(null), 2000);
-                        setSearch("");
-                        setTimeout(() => searchInputRef.current?.focus(), 50);
-                      }
-                    }}
-                    placeholder="Scan barcode or search product..."
-                    className="w-full text-xs bg-white rounded-[7px] pl-9 pr-3 py-2.5 focus:outline-none animate-search-blink"
-                  />
+          {/* 2. Product Details for Sales */}
+          <div suppressHydrationWarning className="bg-white rounded-xl p-4 border border-slate-200">
+            <div className="mb-3 flex flex-wrap items-center gap-3">
+              <h3 suppressHydrationWarning className="flex-none text-xs font-bold text-slate-800">2. Product Details for Sales</h3>
+              <div className="order-3 flex w-full flex-1 items-center justify-center sm:order-none sm:w-auto" aria-live="polite">
+                <div className="flex flex-none items-center gap-2">
+                  {selectedCustomer && (
+                    <span className="max-w-48 truncate text-sm font-semibold text-slate-700">
+                      {selectedCustomer.name}
+                    </span>
+                  )}
+                  <span className="text-lg font-bold text-green-700">Net Pay:</span>
+                  <span className="text-2xl font-bold text-green-700">₹{fmt(payable)}</span>
                 </div>
+              </div>
+              {productTab === "scan" ? (
+                <input
+                  ref={scanInputRef}
+                  id="sales-barcode-scan"
+                  type="text"
+                  inputMode="text"
+                  autoComplete="off"
+                  value={scanCode}
+                  onChange={(event) => {
+                    setScanCode(event.target.value);
+                    setBarcodeNotice(null);
+                    setMissingBarcode(null);
+                  }}
+                  onKeyDown={handleBarcodeScan}
+                  placeholder="Scan or enter product barcode"
+                  aria-label="Scan or enter product barcode"
+                  disabled={productsLoading}
+                  className="w-48 flex-none border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                />
+              ) : (
+                <input
+                  ref={searchInputRef}
+                  type="search"
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  placeholder="Search product name or barcode"
+                  aria-label="Search products to add"
+                  className="min-w-[180px] flex-1 border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                />
+              )}
+              <div className="flex items-center rounded-md border border-slate-200 p-0.5" aria-label="Product entry mode">
+                <button
+                  type="button"
+                  onClick={() => setProductTab("scan")}
+                  aria-pressed={productTab === "scan"}
+                  className={`rounded px-3 py-1.5 text-xs font-semibold ${productTab === "scan" ? "bg-pink-600 text-white" : "bg-green-600 text-white hover:bg-green-700"}`}
+                >
+                  Scan
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setProductTab("add");
+                    requestAnimationFrame(() => searchInputRef.current?.focus());
+                  }}
+                  aria-pressed={productTab === "add"}
+                  className={`rounded px-3 py-1.5 text-xs font-semibold ${productTab === "add" ? "bg-green-600 text-white" : "bg-pink-600 text-white hover:bg-pink-700"}`}
+                >
+                  + Add
+                </button>
               </div>
             </div>
 
-            {barcodeNotice && (
-              <div className="mb-3 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2 text-xs font-semibold text-emerald-700 flex items-center justify-center space-x-1.5 animate-pulse">
-                <Check className="w-3.5 h-3.5" />
-                <span>{barcodeNotice}</span>
+            {productTab === "scan" ? (
+              barcodeNotice && (
+                <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
+                  <p role="status" className={missingBarcode ? "text-amber-700" : "text-slate-600"}>{barcodeNotice}</p>
+                  {missingBarcode && (
+                    <Link
+                      href={`/products?barcode=${encodeURIComponent(missingBarcode)}&from=sales`}
+                      className="rounded bg-blue-600 px-3 py-1.5 font-semibold text-white hover:bg-blue-700"
+                    >
+                      Add Product
+                    </Link>
+                  )}
+                </div>
+              )
+            ) : (
+              <div className="mb-3">
+                {search.trim() && (
+                  <div className="max-h-52 overflow-y-auto border border-slate-200">
+                    {productsLoading ? (
+                      <p className="px-3 py-2 text-xs text-slate-500">Loading products…</p>
+                    ) : visibleProducts.length ? (
+                      visibleProducts.map((product) => (
+                        <div key={product.name} className="flex items-center justify-between gap-3 border-b border-slate-100 px-3 py-2 last:border-0">
+                          <div className="min-w-0">
+                            <p className="truncate text-xs font-medium text-slate-800">{product.name}</p>
+                            <p className="text-[10px] text-slate-500">Sale ₹{fmt(priceInputs[product.name] ?? product.sale)}{product.barcode ? ` · ${product.barcode}` : ""}</p>
+                          </div>
+                          <button type="button" onClick={() => addToCart(product)} className="flex-none rounded bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700">Add</button>
+                        </div>
+                      ))
+                    ) : (
+                      <p className="px-3 py-2 text-xs text-slate-500">No matching products.</p>
+                    )}
+                  </div>
+                )}
               </div>
             )}
 
-            <div className="max-h-[calc(100vh-260px)] overflow-y-auto overflow-x-auto pr-1 scroll-smooth">
-              <table className="w-full text-left border-collapse table-fixed">
+            <div className="max-h-[calc(100vh-340px)] overflow-auto border border-slate-300 scroll-smooth">
+              <table className="w-full min-w-[1000px] text-left border-collapse table-fixed">
                 <thead className="sticky top-0 bg-white z-10">
                   <tr className="text-[11px] text-slate-400 border-b border-slate-100">
-                    <th className="pb-2 px-2 font-normal w-[50%]">Product Name</th>
-                    <th className="pb-2 px-2 font-normal w-[25%] text-right">MRP (₹)</th>
-                    <th className="pb-2 px-2 font-normal text-right w-[25%]">Sale (₹)</th>
+                    <th className="border border-slate-300 bg-slate-100 px-2 py-2 font-semibold text-left text-slate-700">Product</th>
+                    <th className="border border-slate-300 bg-slate-100 px-2 py-2 font-semibold text-right text-slate-700">Purchase (₹)</th>
+                    <th className="border border-slate-300 bg-slate-100 px-2 py-2 font-semibold text-left text-slate-700">Barcode</th>
+                    <th className="border border-slate-300 bg-slate-100 px-2 py-2 font-semibold text-right text-slate-700">MRP (₹)</th>
+                    <th className="border border-slate-300 bg-slate-100 px-2 py-2 font-semibold text-right text-slate-700">Sale (₹)</th>
+                    <th className="border border-slate-300 bg-slate-100 px-2 py-2 font-semibold text-center text-slate-700">Qty</th>
+                    <th className="border border-slate-300 bg-slate-100 px-2 py-2 font-semibold text-left text-slate-700">Size</th>
+                    <th className="border border-slate-300 bg-slate-100 px-2 py-2 font-semibold text-center text-slate-700">Delete</th>
                   </tr>
                 </thead>
-                <tbody className="text-xs divide-y divide-slate-100">
-                  {productsLoading && (
-                    <tr>
-                      <td colSpan={4} className="py-6 text-center text-slate-400">
-                        Loading products...
+                <tbody className="text-xs">
+                  {cart.length === 0 ? (
+                    <tr><td colSpan={8} className="h-24 border border-slate-300 text-center text-slate-400">Scan a barcode or use + Add to select products.</td></tr>
+                  ) : cart.map((item) => (
+                    <tr key={item.name} className="border-b border-slate-200">
+                      <td className="border border-slate-300 px-2 py-2 font-medium text-slate-800">{item.name}</td>
+                      <td className="border border-slate-300 px-2 py-2 text-right text-slate-600">{fmt(item.purchase)}</td>
+                      <td className="border border-slate-300 px-2 py-2 text-slate-600">{item.barcode || "—"}</td>
+                      <td className="border border-slate-300 px-2 py-2 text-right text-slate-600">{fmt(item.mrp)}</td>
+                      <td className="border border-slate-300 px-2 py-2 text-right">
+                        <input aria-label={`Sale price for ${item.name}`} type="number" min="0" value={item.sale} onChange={(event) => setItemSale(item.name, event.target.value)} className="w-20 border border-slate-200 px-1 py-1 text-right" />
                       </td>
-                    </tr>
-                  )}
-                  {!productsLoading && error && (
-                    <tr>
-                      <td colSpan={4} className="py-6 text-center text-red-500">
-                        {error}
+                      <td className="border border-slate-300 px-2 py-2 text-center">
+                        <input aria-label={`Quantity for ${item.name}`} type="number" min="1" value={item.qty} onChange={(event) => setItemQty(item.name, event.target.value)} className="w-14 border border-slate-200 px-1 py-1 text-center" />
                       </td>
+                      <td className="border border-slate-300 px-2 py-2 text-slate-600">{item.size || "—"}</td>
+                      <td className="border border-slate-300 px-2 py-2 text-center"><button type="button" onClick={() => removeItem(item.name)} aria-label={`Delete ${item.name}`} className="text-red-600 hover:text-red-800"><Trash2 className="mx-auto h-4 w-4" /></button></td>
                     </tr>
-                  )}
-                  {!productsLoading &&
-                    !error &&
-                    filteredProducts.length === 0 && (
-                      <tr>
-                        <td colSpan={4} className="py-6 text-center">
-                          <p className="text-slate-400 mb-3">
-                            {search.trim()
-                              ? `No products found for "${search.trim()}".`
-                              : "No products found."}
-                          </p>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setQaName(search.trim());
-                              setQaMrp("");
-                              setQaSale("");
-                              setQaCategory("");
-                              setQaBarcode(genSku());
-                              setQaError(null);
-                              setQuickAddOpen(true);
-                            }}
-                            className="inline-flex items-center space-x-1.5 bg-blue-600 hover:bg-blue-700 text-white px-4 py-1.5 rounded-md text-xs font-medium"
-                          >
-                            <Plus className="w-3.5 h-3.5" />
-                            <span>New Add</span>
-                          </button>
-                        </td>
-                      </tr>
-                    )}
-                  {!productsLoading &&
-                    !error &&
-                    visibleProducts.map((p) => (
-                      <tr
-                        key={p.name}
-                        onClick={() => addToCart(p)}
-                        className="cursor-pointer hover:bg-blue-50 transition-colors"
-                      >
-                        <td className="py-2 px-2 font-medium text-slate-800 truncate">
-                          {renderHighlightedSaleName(p.name)}
-                        </td>
-                        <td className="py-2 px-2 text-slate-600 text-right">
-                          {fmt(p.mrp)}
-                        </td>
-                        <td className="py-2 px-2 text-slate-700 font-semibold text-right">
-                          {fmt(p.sale)}
-                        </td>
-                      </tr>
-                    ))}
+                  ))}
                 </tbody>
               </table>
             </div>
@@ -651,15 +941,12 @@ export default function AddSalePage() {
         </div>
 
         {/* RIGHT SECTION: YOUR CART & PAYMENT DETAILS */}
-        <div className="col-span-7 space-y-4">
+        <div className="hidden col-span-7 space-y-4">
           {/* Your Cart */}
-          <div className="bg-white rounded-xl p-4 border border-slate-200">
+          <div suppressHydrationWarning className="bg-white rounded-xl p-4 border border-slate-200">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-              <h3 className="text-xs font-bold text-slate-800">
-                Your Cart{" "}
-                <span className="text-slate-400 font-normal">
-                  ({cart.length} items)
-                </span>
+              <h3 suppressHydrationWarning className="text-xs font-bold text-slate-800">
+                Your Cart <span className="text-slate-400 font-normal">({cart.length} items)</span>
               </h3>
               <button
                 type="button"
@@ -789,37 +1076,11 @@ export default function AddSalePage() {
                 </span>
               </div>
 
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-1 text-slate-600 font-medium">
-                  <span>Bill Discount</span>
-                  <Info className="w-3 h-3 text-slate-400" />
-                </div>
-                <div className="inline-flex items-center border border-slate-200 rounded bg-white">
-                  <button
-                    type="button"
-                    onClick={() => setDiscount(Math.max(0, discount - 10))}
-                    className="px-1.5 text-slate-400 hover:bg-slate-200 transition-colors self-stretch flex items-center"
-                    aria-label="Decrease discount by 10"
-                  >
-                    <Minus className="w-3 h-3" />
-                  </button>
-                  <input
-                    type="number"
-                    value={discount}
-                    onChange={(e) =>
-                      setDiscount(Math.max(0, Number(e.target.value)))
-                    }
-                    className="w-14 py-0.5 text-right text-xs font-medium text-slate-700 focus:outline-none"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setDiscount(discount + 10)}
-                    className="px-1.5 text-slate-400 hover:bg-slate-200 transition-colors self-stretch flex items-center"
-                    aria-label="Increase discount by 10"
-                  >
-                    <Plus className="w-3 h-3" />
-                  </button>
-                </div>
+              <div className="space-y-1 text-slate-600 font-medium">
+                <div className="flex justify-between"><span>GST ({GST_RATE}%)</span><span>₹{fmt(gstAmount)}</span></div>
+                <div className="flex justify-between"><span>CGST</span><span>₹{fmt(cgstAmount)}</span></div>
+                <div className="flex justify-between"><span>Total</span><span>₹{fmt(totalWithTax)}</span></div>
+                <div className="flex justify-between"><span>Discount</span><span>−₹{fmt(discount)}</span></div>
               </div>
 
               <div className="rounded-lg p-0.5 animate-multicolor mt-2">
@@ -837,8 +1098,8 @@ export default function AddSalePage() {
 
           {/* Payment Details */}
           {cart.length > 0 && (
-          <div className="bg-white rounded-xl p-4 border border-slate-200 space-y-3">
-            <h3 className="text-xs font-bold text-slate-800">Payment Details</h3>
+          <div suppressHydrationWarning className="bg-white rounded-xl p-4 border border-slate-200 space-y-3">
+            <h3 suppressHydrationWarning className="text-xs font-bold text-slate-800">Payment Details</h3>
 
             <div className="grid grid-cols-2 gap-3">
               <div className="flex flex-col">
@@ -908,7 +1169,7 @@ export default function AddSalePage() {
               type="button"
               onClick={handleSubmit}
               disabled={
-                submitting || cart.length === 0 || pendingPayable !== null
+                submitting || cart.length === 0 || !selectedCustomer || pendingPayable !== null
               }
               className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold text-xs py-2.5 rounded-lg flex items-center justify-center space-x-1.5 transition-colors"
             >
@@ -949,6 +1210,93 @@ export default function AddSalePage() {
           </div>
         </div>
       )}
+
+      <div className="fixed inset-x-0 bottom-0 z-40 border-t border-slate-200 bg-white/95 px-4 py-2 shadow-[0_-4px_12px_rgba(15,23,42,0.08)] backdrop-blur">
+        <div className="mx-auto flex max-w-[1600px] flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Net Pay</p>
+              <p className="text-xl font-bold text-green-700">₹{fmt(payable)}</p>
+            </div>
+            <label className="flex items-center gap-2 text-xs font-medium text-slate-600">
+              <span>CGST ₹</span>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={cgstAmount}
+                onChange={(event) => setCgstAmount(Math.max(0, Number(event.target.value) || 0))}
+                disabled={submitting}
+                aria-label="CGST amount in rupees"
+                className="w-20 border border-slate-300 bg-white px-2 py-1.5 text-right text-sm font-semibold text-slate-800 disabled:bg-slate-100"
+              />
+            </label>
+            <label className="flex items-center gap-2 text-xs font-medium text-slate-600">
+              <span>Received</span>
+              <span className="flex items-center border border-slate-300 bg-white px-2">
+                <span className="text-slate-400">₹</span>
+                <input
+                  type="number"
+                  min="0"
+                  value={received}
+                  onChange={(event) => {
+                    setReceived(Math.max(0, Number(event.target.value) || 0));
+                    setReceivedTouched(true);
+                  }}
+                  aria-label="Amount received"
+                  className="w-20 px-1.5 py-1.5 text-right text-sm font-semibold text-slate-800 outline-none"
+                />
+              </span>
+            </label>
+          </div>
+
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <label className={`flex items-center gap-2 text-xs font-medium ${selectedCustomer?.phone.trim() ? "text-slate-700" : "text-slate-400"}`}>
+              <input
+                type="checkbox"
+                checked={autoSendWhatsapp}
+                onChange={(event) => setAutoSendWhatsapp(event.target.checked)}
+                disabled={submitting || !selectedCustomer?.phone.trim()}
+                className="h-4 w-4 accent-green-600"
+              />
+              Auto Send WhatsApp
+            </label>
+            <button
+              type="button"
+              onClick={() => void handleSubmit(false)}
+              disabled={submitting || cart.length === 0 || !selectedCustomer || pendingPayable !== null}
+              className="inline-flex items-center gap-1.5 rounded-md bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <Wallet className="h-4 w-4" />
+              {submitting ? "Paying..." : "Pay"}
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleSubmit(true)}
+              disabled={submitting || cart.length === 0 || !selectedCustomer || pendingPayable !== null}
+              className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <Check className="h-4 w-4" />
+              Quick Pay
+            </button>
+            <button
+              type="button"
+              onClick={handlePrintReceipt}
+              disabled={cart.length === 0 || !selectedCustomer}
+              className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <Printer className="h-4 w-4" />
+              Bill Print
+            </button>
+          </div>
+        </div>
+        {autoSendWhatsapp && (
+          <p className="mt-2 text-right text-[10px] text-slate-500">
+            WhatsApp opens with the receipt ready; review it and tap Send to share.
+          </p>
+        )}
+      </div>
+      <div aria-hidden="true" className="h-28" />
 
       {quickAddOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">

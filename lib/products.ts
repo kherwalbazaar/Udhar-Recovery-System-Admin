@@ -1,10 +1,17 @@
 import { ref, set, update, remove } from "firebase/database";
 import { db } from "./firebase";
-import { getWithCache, CACHE_KEYS, triggerActionRefresh } from "./cache";
+import {
+  getWithCache,
+  CACHE_KEYS,
+  readCache,
+  triggerActionRefresh,
+  writeCache,
+} from "./cache";
 import { get as firebaseGet } from "firebase/database";
 
 export type ProductRecord = {
   name: string;
+  origin?: "catalog" | "sales";
   barcode?: string;
   qrCode?: string;
   category?: string;
@@ -67,8 +74,9 @@ export async function fetchAllProducts(): Promise<ProductRecord[]> {
     | null;
   if (!raw) return [];
   return Object.values(raw)
-    .map((r) => ({
+    .map((r): ProductRecord => ({
       name: String(r.name ?? ""),
+      origin: r.origin === "catalog" || r.origin === "sales" ? r.origin : undefined,
       barcode: r.barcode ? String(r.barcode) : undefined,
       qrCode: r.qrCode ? String(r.qrCode) : undefined,
       category: r.category ? String(r.category) : undefined,
@@ -83,102 +91,71 @@ export async function fetchAllProducts(): Promise<ProductRecord[]> {
       trackStock: Boolean(r.trackStock ?? true),
       createdAt: Number(r.createdAt ?? 0),
     }))
-    .filter((p) => p.name)
+    .filter((p) => p.name && p.origin !== "sales")
     .sort((a, b) => b.createdAt - a.createdAt);
 }
 
-export async function fetchSoldProducts(): Promise<ProductWithSales[]> {
-  const salesSnap = await getWithCache(ref(db, "sales"), CACHE_KEYS.SALES);
-  const salesRaw = salesSnap.val() as
-    | Record<
-        string,
-        {
-          productName?: string | unknown;
-          mrp?: number | unknown;
-          sale?: number | unknown;
-          salePrice?: number | unknown;
-          quantity?: number | unknown;
-        }
-      >
-    | null;
+export async function fetchCatalogProducts(): Promise<ProductWithSales[]> {
+  const [productsSnap, salesSnap] = await Promise.all([
+    firebaseGet(ref(db, "products")),
+    firebaseGet(ref(db, "sales")),
+  ]);
+  const raw = productsSnap.val() as Record<string, Record<string, unknown>> | null;
+  const salesRaw = salesSnap.val() as Record<string, Record<string, unknown>> | null;
+  if (!raw) return [];
 
-  const soldMap = new Map<
-    string,
-    { name: string; mrp: number; sale: number; qty: number }
-  >();
-  if (salesRaw) {
-    for (const r of Object.values(salesRaw)) {
-      const name = String(r.productName ?? "").trim();
-      if (!name) continue;
-      const existing = soldMap.get(name);
-      const mrp = Number(r.mrp ?? 0);
-      const salePrice = Number(r.salePrice ?? r.sale ?? 0);
-      const qty = Number(r.quantity ?? 0);
-      if (existing) {
-        existing.mrp = mrp > 0 ? mrp : existing.mrp;
-        existing.sale = salePrice > 0 ? salePrice : existing.sale;
-        existing.qty += qty;
-      } else {
-        soldMap.set(name, { name, mrp, sale: salePrice, qty });
-      }
-    }
-  }
+  const soldProductNames = new Set(
+    Object.values(salesRaw ?? {})
+      .map((sale) => String(sale.productName ?? "").trim().toLocaleLowerCase())
+      .filter(Boolean)
+  );
 
-  const productsSnap = await getWithCache(ref(db, "products"), CACHE_KEYS.PRODUCTS);
-  const productsRaw = productsSnap.val() as
-    | Record<string, Record<string, unknown>>
-    | null;
+  return Object.values(raw)
+    .filter((product) => {
+      const name = String(product.name ?? "").trim();
+      if (!name) return false;
+      if (product.origin === "catalog") return true;
+      if (product.origin === "sales") return false;
 
-  const records: ProductWithSales[] = [];
-  soldMap.forEach((s) => {
-    const p = productsRaw ? productsRaw[s.name] : undefined;
-    const mrp = s.mrp > 0 ? s.mrp : Number(p?.mrp ?? 0);
-    const isCatalog = Boolean(p);
-    records.push({
-      name: s.name,
-      barcode: p?.barcode ? String(p.barcode) : undefined,
-      qrCode: p?.qrCode ? String(p.qrCode) : undefined,
-      category: p?.category ? String(p.category) : undefined,
-      unit: p?.unit ? String(p.unit) : undefined,
-      mrp,
-      cost: isCatalog
-        ? p?.cost != null
-          ? Number(p.cost)
-          : undefined
-        : mrp > 0
-          ? mrp / 2
-          : undefined,
-      sale: s.sale > 0 ? s.sale : p?.sale != null ? Number(p.sale) : undefined,
-      stock: p?.stock != null ? Number(p.stock) : undefined,
-      totalQty: s.qty,
-      inCatalog: isCatalog,
-    });
-  });
+      if (!soldProductNames.has(name.toLocaleLowerCase())) return true;
 
-  const totalSoldByName = new Map(records.map((r) => [r.name, r.totalQty]));
+      const mrp = Number(product.mrp ?? 0);
+      const cost = Number(product.cost);
+      const isLegacyFallbackCost =
+        product.cost != null &&
+        mrp > 0 &&
+        Number.isFinite(cost) &&
+        Math.abs(cost - mrp / 2) < 0.01;
+      const hasCatalogDetails =
+        (product.cost != null && !isLegacyFallbackCost) ||
+        product.unit != null ||
+        product.stock != null;
+      const isLegacyQrStub =
+        Boolean(product.qrCode) &&
+        product.category == null &&
+        !hasCatalogDetails;
+      const isLegacySalesQuickAdd =
+        Boolean(product.category) &&
+        !product.qrCode &&
+        !hasCatalogDetails;
 
-  if (productsRaw) {
-    for (const p of Object.values(productsRaw)) {
-      const name = String(p.name ?? "").trim();
-      if (!name) continue;
-      if (totalSoldByName.has(name)) continue;
-      records.push({
-        name,
-        barcode: p.barcode ? String(p.barcode) : undefined,
-        qrCode: p.qrCode ? String(p.qrCode) : undefined,
-        category: p.category ? String(p.category) : undefined,
-        unit: p.unit ? String(p.unit) : undefined,
-        mrp: Number(p.mrp ?? 0),
-        cost: p.cost != null ? Number(p.cost) : undefined,
-        sale: p.sale != null ? Number(p.sale) : undefined,
-        stock: p.stock != null ? Number(p.stock) : undefined,
-        totalQty: 0,
-        inCatalog: true,
-      });
-    }
-  }
-
-  return records.sort((a, b) => a.name.localeCompare(b.name));
+      return !isLegacyQrStub && !isLegacySalesQuickAdd;
+    })
+    .map((product) => ({
+      name: String(product.name ?? "").trim(),
+      origin: "catalog",
+      barcode: product.barcode ? String(product.barcode) : undefined,
+      qrCode: product.qrCode ? String(product.qrCode) : undefined,
+      category: product.category ? String(product.category) : undefined,
+      unit: product.unit ? String(product.unit) : undefined,
+      mrp: Number(product.mrp ?? 0),
+      cost: product.cost != null ? Number(product.cost) : undefined,
+      sale: product.sale != null ? Number(product.sale) : undefined,
+      stock: product.stock != null ? Number(product.stock) : undefined,
+      totalQty: 0,
+      inCatalog: true,
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name));
 }
 
 export type ProductWithSales = {
@@ -199,11 +176,29 @@ export async function updateProduct(
   oldName: string,
   p: ProductRecord
 ): Promise<void> {
-  const updates: Record<string, ProductRecord | null | Record<string, unknown>> = {
-    [`products/${oldName}`]: null,
-  };
-  updates[`products/${p.name}`] = sanitizeRecord(p);
-  await update(ref(db), updates);
+  const sanitized = sanitizeRecord(p);
+  if (oldName === p.name) {
+    // Updating a product in place should merge fields so stale or partial
+    // product lists cannot trigger a duplicate create or erase existing data.
+    await update(ref(db, `products/${p.name}`), sanitized);
+  } else {
+    const updates: Record<string, ProductRecord | null | Record<string, unknown>> = {
+      [`products/${oldName}`]: null,
+      [`products/${p.name}`]: sanitized,
+    };
+    await update(ref(db), updates);
+  }
+
+  const cached = readCache<unknown>(CACHE_KEYS.PRODUCTS);
+  if (cached && typeof cached === "object" && !Array.isArray(cached)) {
+    const productMap = { ...(cached as Record<string, Record<string, unknown>>) };
+    if (oldName !== p.name) delete productMap[oldName];
+    productMap[p.name] = {
+      ...(productMap[p.name] ?? {}),
+      ...sanitized,
+    };
+    writeCache(CACHE_KEYS.PRODUCTS, productMap);
+  }
   if (typeof window !== "undefined") triggerActionRefresh();
 }
 

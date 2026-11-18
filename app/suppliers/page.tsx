@@ -21,6 +21,7 @@ import { onValueWithCache, CACHE_KEYS, triggerActionRefresh } from "@/lib/cache"
   ShoppingCart,
 } from "lucide-react";
 import AppShell from "@/components/AppShell";
+import { useToast } from "@/components/ToastProvider";
 import { db } from "@/lib/firebase";
 import {
   buildSuppliers,
@@ -127,6 +128,7 @@ function MetricCard({ metric }: { metric: Metric }) {
 }
 
 export default function SuppliersPage() {
+  const { showToast } = useToast();
   const [data, setData] = useState<SupplierData | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
@@ -289,6 +291,7 @@ export default function SuppliersPage() {
       triggerActionRefresh();
       setEntryForm({ details: "", amount: "", date: "" });
       setEntryOpen(false);
+      showToast("success", "Supplier entry saved.");
     } catch (e) {
       setEntryError(e instanceof Error ? e.message : "Failed to save entry.");
     } finally {
@@ -327,6 +330,7 @@ export default function SuppliersPage() {
       setSettleDesc("");
       setSettleDate("");
       setSettleOpen(false);
+      showToast("success", "Supplier payment recorded.");
     } catch (e) {
       setSettleError(
         e instanceof Error ? e.message : "Failed to settle payment."
@@ -361,6 +365,7 @@ export default function SuppliersPage() {
       triggerActionRefresh();
       setAddOpen(false);
       setAddForm({ name: "", phone: "", address: "" });
+      showToast("success", "Supplier added.");
     } catch (e) {
       setAddError(e instanceof Error ? e.message : "Failed to add supplier.");
     } finally {
@@ -398,6 +403,7 @@ export default function SuppliersPage() {
       await update(ref(db), updates);
       triggerActionRefresh();
       setEditTxn(null);
+      showToast("success", "Supplier transaction updated.");
     } catch (e) {
       setEditError(
         e instanceof Error ? e.message : "Failed to update transaction."
@@ -428,6 +434,7 @@ export default function SuppliersPage() {
       );
       setDeleteOpen(false);
       setEditTxn(null);
+      showToast("success", "Supplier transaction deleted.");
     } catch (e) {
       setDeleteError(
         e instanceof Error ? e.message : "Failed to delete transaction."

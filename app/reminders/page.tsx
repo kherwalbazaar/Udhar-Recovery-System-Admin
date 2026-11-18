@@ -15,6 +15,7 @@ import {
   Loader2,
 } from "lucide-react";
 import AppShell from "@/components/AppShell";
+import { useToast } from "@/components/ToastProvider";
 import { db } from "@/lib/firebase";
 import { buildKhata, type KhataCustomer, type RawMap } from "@/lib/khata";
 
@@ -87,6 +88,7 @@ function MetricCard({ metric }: { metric: Metric }) {
 }
 
 export default function RemindersPage() {
+  const { showToast } = useToast();
   const [customers, setCustomers] = useState<KhataCustomer[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -147,6 +149,7 @@ export default function RemindersPage() {
       }
       setSavedId(id);
       setTimeout(() => setSavedId(null), 2000);
+      showToast("success", "Reminder saved.");
     } catch (e) {
       setDateError(e instanceof Error ? e.message : "Failed to save reminder.");
     } finally {

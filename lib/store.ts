@@ -1,4 +1,4 @@
-import { ref, push, set, update } from "firebase/database";
+import { ref, push, set, update, runTransaction, remove } from "firebase/database";
 import { db } from "./firebase";
 import {
   getWithCache,
@@ -158,8 +158,8 @@ export async function createCustomer(input: {
   const name = input.name.trim();
   const phone = input.phone.trim();
   const address = input.address.trim();
-  if (!name || !phone || !address) {
-    throw new Error("Name, mobile number, and address are required.");
+  if (!name || !phone) {
+    throw new Error("Name and mobile number are required.");
   }
 
   const customerRef = push(ref(db, "customers"));
@@ -206,16 +206,32 @@ export async function submitSale(params: {
   customer?: CustomerSummary | null;
   received?: number;
   note?: string;
+  /** How the customer paid: Cash, UPI, Card, etc. Stored per sale row. */
+  paymentMethod?: string;
+  /** Human readable bill number, e.g. KB-20261117-004. Stored per sale row. */
+  invoiceNo?: string;
+  /** Unique persistent bill ID used to prevent repeat submission on completion. */
+  idempotencyKey?: string;
 }): Promise<void> {
-  const { items, saleType, customer, received, note } = params;
+  const { items, saleType, customer, received, note, paymentMethod, invoiceNo, idempotencyKey } =
+    params;
   if (items.length === 0) return;
+
+  if (idempotencyKey) {
+    const claim = await runTransaction(ref(db, `completedBills/${idempotencyKey}`), (current) =>
+      current == null ? { status: "PROCESSING", startedAt: Date.now() } : undefined
+    );
+    if (!claim.committed) throw new Error("This bill is already being completed or has already been recorded.");
+  }
 
   const date = toDateKey(new Date());
   const createdAt = Date.now();
   const updates: Record<string, unknown> = {};
 
   for (const item of items) {
-    const saleKey = push(ref(db, "sales")).key;
+    const saleKey = idempotencyKey
+      ? `${idempotencyKey}_${Object.keys(updates).length}`
+      : push(ref(db, "sales")).key;
     const quantity = Math.max(1, item.qty || 1);
     updates[`sales/${saleKey}`] = {
       productName: item.name,
@@ -226,6 +242,8 @@ export async function submitSale(params: {
       date,
       createdAt,
       ...(note ? { note } : {}),
+      ...(paymentMethod ? { paymentMethod } : {}),
+      ...(invoiceNo ? { invoiceNo } : {}),
     };
   }
 
@@ -260,6 +278,37 @@ export async function submitSale(params: {
       (customer.totalAmount ?? 0) + balanceDelta;
   }
 
-  await update(ref(db), updates);
+  if (idempotencyKey) {
+    updates[`completedBills/${idempotencyKey}`] = {
+      status: "COMPLETED",
+      completedAt: Date.now(),
+      invoiceNo: invoiceNo ?? null,
+    };
+  }
+
+  const receivedAmount = Math.max(0, Number(received) || 0);
+  if (receivedAmount > 0) {
+    const normalizedPaymentMode = String(paymentMethod ?? "cash").toLowerCase();
+    const cashbookKey = idempotencyKey
+      ? `${idempotencyKey}_receipt`
+      : push(ref(db, "cashbook")).key;
+    updates[`cashbook/${cashbookKey}`] = {
+      amount: receivedAmount,
+      category: "Sales",
+      mode: normalizedPaymentMode === "card" ? "online" : normalizedPaymentMode,
+      remark: invoiceNo ? `Sale ${invoiceNo}` : "Sale received",
+      date,
+      type: "in",
+      createdAt,
+      ...(idempotencyKey ? { billId: idempotencyKey } : {}),
+    };
+  }
+
+  try {
+    await update(ref(db), updates);
+  } catch (error) {
+    if (idempotencyKey) await remove(ref(db, `completedBills/${idempotencyKey}`)).catch(() => {});
+    throw error;
+  }
   if (typeof window !== "undefined") triggerActionRefresh();
 }

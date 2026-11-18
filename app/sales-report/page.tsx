@@ -17,6 +17,7 @@ import {
   Check,
 } from "lucide-react";
 import AppShell from "@/components/AppShell";
+import { useToast } from "@/components/ToastProvider";
 import { db } from "@/lib/firebase";
 import {
   buildProductSalesReport,
@@ -45,6 +46,7 @@ function formatDate(key: string): string {
 }
 
 export default function SalesReportPage() {
+  const { showToast, confirmAction } = useToast();
   const [rows, setRows] = useState<ProductSaleRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -191,6 +193,7 @@ export default function SalesReportPage() {
       });
       triggerActionRefresh();
       setEditing(null);
+      showToast("success", "Sale entry updated.");
     } catch (e) {
       setActionError(
         e instanceof Error ? e.message : "Failed to update sale entry."
@@ -201,10 +204,11 @@ export default function SalesReportPage() {
   };
 
   const deleteSale = async (row: ProductSaleRow) => {
-    if (!window.confirm(`Delete sale entry for "${row.product}"?`)) return;
+    if (!await confirmAction({ title: "Delete this sale entry?", message: `The sale entry for “${row.product}” will be permanently removed.`, confirmLabel: "Delete entry", cancelLabel: "Keep entry", tone: "danger" })) return;
     try {
       await remove(ref(db, `sales/${row.id}`));
       triggerActionRefresh();
+      showToast("success", "Sale entry deleted.");
     } catch (e) {
       setActionError(
         e instanceof Error ? e.message : "Failed to delete sale entry."

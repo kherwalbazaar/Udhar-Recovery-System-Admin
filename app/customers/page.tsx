@@ -20,6 +20,7 @@ import { onValueWithCache, CACHE_KEYS, triggerActionRefresh } from "@/lib/cache"
   Edit3,
 } from "lucide-react";
 import AppShell from "@/components/AppShell";
+import { useToast } from "@/components/ToastProvider";
 import { db } from "@/lib/firebase";
 import {
   buildKhata,
@@ -112,6 +113,7 @@ function MetricCard({ metric }: { metric: Metric }) {
 }
 
 export default function KhataPage() {
+  const { showToast } = useToast();
   const [data, setData] = useState<KhataData | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
@@ -282,6 +284,7 @@ export default function KhataPage() {
       triggerActionRefresh();
       setEntryItems([]);
       setEntryOpen(false);
+      showToast("success", "Customer entry saved.");
     } catch (e) {
       setEntryError(e instanceof Error ? e.message : "Failed to save entry.");
     } finally {
@@ -323,6 +326,7 @@ export default function KhataPage() {
       setSettleAmount("");
       setSettleDesc("");
       setSettleOpen(false);
+      showToast("success", "Customer payment recorded.");
     } catch (e) {
       setSettleError(
         e instanceof Error ? e.message : "Failed to settle payment."
@@ -362,6 +366,7 @@ export default function KhataPage() {
       await update(ref(db), updates);
       triggerActionRefresh();
       setEditTxn(null);
+      showToast("success", "Customer transaction updated.");
     } catch (e) {
       setEditError(
         e instanceof Error ? e.message : "Failed to update transaction."

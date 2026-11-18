@@ -14,6 +14,15 @@ import {
   X,
   AlertCircle,
   Printer,
+  Banknote,
+  QrCode,
+  CreditCard,
+  PackagePlus,
+  Keyboard,
+  TrendingUp,
+  Users,
+  Package,
+  IndianRupee,
 } from "lucide-react";
 import AppShell from "@/components/AppShell";
 import { useToast } from "@/components/ToastProvider";
@@ -21,13 +30,32 @@ import OptionalSupabaseAdminSignIn from "@/components/OptionalSupabaseAdminSignI
 import {
   fetchProducts,
   fetchCustomers,
-  createCustomer,
   submitSale,
   type Product,
   type CustomerSummary,
 } from "@/lib/store";
+import {
+  draftToCustomer,
+  isLocalCustomer,
+  pushLocalCustomer,
+  readLocalCustomerDrafts,
+  removeLocalCustomerDraft,
+  saveLocalCustomerDraft,
+} from "@/lib/local-customers";
 import { saveProduct } from "@/lib/products";
 import { savePayableAmount } from "@/lib/supabase";
+import { CACHE_KEYS, readCache } from "@/lib/cache";
+import {
+  completePendingBill,
+  deleteLocalPendingBill,
+  deletePendingBill,
+  fetchLocalPendingBills,
+  fetchPendingBillSnapshot,
+  markLocalPendingBillCompleted,
+  saveLocalPendingBill,
+  savePendingBill,
+  type PendingBill,
+} from "@/lib/pending-bills";
 import QRCode from "qrcode";
 
 type CartItem = {
@@ -65,8 +93,93 @@ const fmt = (n: number) =>
 
 const GST_RATE = 18;
 
+type PaymentMode = "Cash" | "UPI" | "Card" | "Credit";
+
+const PAYMENT_MODES: { label: PaymentMode; icon: typeof Banknote }[] = [
+  { label: "Cash", icon: Banknote },
+  { label: "UPI", icon: QrCode },
+  { label: "Card", icon: CreditCard },
+  { label: "Credit", icon: Wallet },
+];
+
+const DRAFT_KEY = "udhar_sales_draft_v1";
+const INVOICE_SEQ_KEY = "udhar_sales_invoice_seq_v1";
+const DRAFT_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
+type SalesDraft = {
+  cart: CartItem[];
+  customerId: string | null;
+  paymentMode: PaymentMode;
+  invoiceNo: string | null;
+  updatedAt: number;
+};
+
+type TodayStats = {
+  bills: number;
+  items: number;
+  amount: number;
+  profit: number;
+};
+
+/** Unique id for one customer billing session. */
+function makeBillId(): string {
+  return `bill_${globalThis.crypto.randomUUID()}`;
+}
+
+function toDayKey(date = new Date()): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+/** Bill number per day: KB-YYYYMMDD-001 */
+function makeInvoiceNo(): string {
+  const day = toDayKey().replace(/-/g, "");
+  let seq = 1;
+  try {
+    const raw = JSON.parse(localStorage.getItem(INVOICE_SEQ_KEY) ?? "null") as
+      | { day?: string; seq?: number }
+      | null;
+    if (raw && raw.day === day) seq = Math.max(1, Number(raw.seq ?? 0) + 1);
+    localStorage.setItem(INVOICE_SEQ_KEY, JSON.stringify({ day, seq }));
+  } catch {
+    // storage blocked - bill number is still usable without persistence
+  }
+  return `KB-${day}-${String(seq).padStart(3, "0")}`;
+}
+
+function readDraft(): SalesDraft | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = localStorage.getItem(DRAFT_KEY);
+    if (!raw) return null;
+    const draft = JSON.parse(raw) as SalesDraft;
+    if (!Array.isArray(draft.cart) || draft.cart.length === 0) return null;
+    if (!draft.updatedAt || Date.now() - draft.updatedAt > DRAFT_MAX_AGE_MS) return null;
+    return {
+      cart: draft.cart,
+      customerId: draft.customerId ?? null,
+      paymentMode: (PAYMENT_MODES.some((m) => m.label === draft.paymentMode)
+        ? draft.paymentMode
+        : "Cash") as PaymentMode,
+      invoiceNo: draft.invoiceNo ?? null,
+      updatedAt: draft.updatedAt,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function writeDraft(draft: SalesDraft | null) {
+  if (typeof window === "undefined") return;
+  try {
+    if (!draft || draft.cart.length === 0) localStorage.removeItem(DRAFT_KEY);
+    else localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
+  } catch {
+    // storage full or blocked - the bill still works in memory
+  }
+}
+
 export default function AddSalePage() {
-  const { showToast } = useToast();
+  const { showToast, confirmAction } = useToast();
   const [products, setProducts] = useState<Product[]>([]);
   const [productsLoading, setProductsLoading] = useState(true);
   const [customers, setCustomers] = useState<CustomerSummary[]>([]);
@@ -81,7 +194,7 @@ export default function AddSalePage() {
   const [customerPhone, setCustomerPhone] = useState("");
   const [customerAddress, setCustomerAddress] = useState("");
   const [customerSaveError, setCustomerSaveError] = useState<string | null>(null);
-  const [customerSaving, setCustomerSaving] = useState(false);
+  const [customerFormOpen, setCustomerFormOpen] = useState(false);
   const [priceInputs, setPriceInputs] = useState<Record<string, number>>({});
   const [cgstAmount, setCgstAmount] = useState(0);
   const [received, setReceived] = useState(0);
@@ -103,9 +216,26 @@ export default function AddSalePage() {
   const [qaSaving, setQaSaving] = useState(false);
   const [barcodeNotice, setBarcodeNotice] = useState<string | null>(null);
   const [missingBarcode, setMissingBarcode] = useState<string | null>(null);
+  const [paymentMode, setPaymentMode] = useState<PaymentMode>("Cash");
+  const [upiDialogOpen, setUpiDialogOpen] = useState(false);
+  const [upiQrCode, setUpiQrCode] = useState<string | null>(null);
+  const [upiQrError, setUpiQrError] = useState<string | null>(null);
+  const [invoiceNo, setInvoiceNo] = useState<string | null>(null);
+  const [todayStats, setTodayStats] = useState<TodayStats | null>(null);
+  const [customersLoaded, setCustomersLoaded] = useState(false);
+  const [restoredCustomerId, setRestoredCustomerId] = useState<string | null>(null);
+  const [billTabs, setBillTabs] = useState<PendingBill[]>([]);
+  const [closedBillTabIds, setClosedBillTabIds] = useState<string[]>([]);
+  const [activeBillId, setActiveBillId] = useState<string | null>(null);
+  const [pendingBillsLoaded, setPendingBillsLoaded] = useState(false);
+  const [pendingAction, setPendingAction] = useState(false);
+  const suppressPendingSaveRef = useRef(false);
+  const activeBillIdRef = useRef<string | null>(null);
+  const sessionTouchedRef = useRef(false);
 
   const searchInputRef = useRef<HTMLInputElement>(null);
   const scanInputRef = useRef<HTMLInputElement>(null);
+  const submitRef = useRef<((quickPay?: boolean) => void) | null>(null);
 
   const genSku = () =>
     `KB${Date.now().toString().slice(-6)}${Math.floor(1000 + Math.random() * 9000)}`;
@@ -166,13 +296,191 @@ export default function AddSalePage() {
       });
     fetchCustomers()
       .then((c) => {
-        if (active) setCustomers(c);
+        if (!active) return;
+        // Device-only customers (saved here, not yet in Firebase) belong at the top.
+        setCustomers([...readLocalCustomerDrafts().map(draftToCustomer), ...c]);
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => {
+        if (active) setCustomersLoaded(true);
+      });
     return () => {
       active = false;
     };
   }, []);
+
+  // Keep a ref copy so async restores never work from stale state.
+  useEffect(() => {
+    activeBillIdRef.current = activeBillId;
+  }, [activeBillId]);
+
+  // Restore saved billing sessions. The device copy is applied first so the tabs
+  // appear instantly after a refresh; Firebase (the shared source) is merged after.
+  useEffect(() => {
+    let active = true;
+    const merged = new Map<string, PendingBill>();
+
+    const applyBill = (bill: PendingBill) => {
+      setActiveBillId(bill.id);
+      setCart(bill.items);
+      setSelectedCustomer(bill.customer);
+      setInvoiceNo(bill.invoiceNo);
+      setPaymentMode((PAYMENT_MODES.some((mode) => mode.label === bill.paymentMode)
+        ? bill.paymentMode
+        : "Cash") as PaymentMode);
+      setCgstAmount(bill.cgstAmount ?? 0);
+      setReceived(bill.received ?? 0);
+      setReceivedTouched(Boolean(bill.receivedTouched));
+    };
+    const sorted = () => [...merged.values()].sort((a, b) => b.updatedAt - a.updatedAt);
+    const publish = () => setBillTabs(sorted());
+    const resetSession = () => {
+      setActiveBillId(makeBillId());
+      setCart([]);
+      setSelectedCustomer(null);
+      setInvoiceNo(null);
+      setPaymentMode("Cash");
+      setCgstAmount(0);
+      setReceived(0);
+      setReceivedTouched(false);
+    };
+
+    for (const localBill of fetchLocalPendingBills()) merged.set(localBill.id, localBill);
+    if (merged.size) {
+      if (!activeBillIdRef.current) applyBill(sorted()[0]);
+      publish();
+    } else if (!activeBillIdRef.current) {
+      const draft = readDraft();
+      if (draft) {
+        setActiveBillId(makeBillId());
+        setCart(draft.cart);
+        setPaymentMode(draft.paymentMode);
+        setInvoiceNo(draft.invoiceNo ?? makeInvoiceNo());
+        if (draft.customerId) setRestoredCustomerId(draft.customerId);
+        showToast("info", "Restored the bill you were working on.");
+      } else {
+        setActiveBillId(makeBillId());
+      }
+    }
+
+    fetchPendingBillSnapshot()
+      .then(({ bills, completedIds }) => {
+        if (!active) return;
+        const finished = new Set(completedIds);
+        for (const id of finished) {
+          merged.delete(id);
+          deleteLocalPendingBill(id);
+        }
+        for (const bill of bills) {
+          const local = merged.get(bill.id);
+          if (local && local.updatedAt > bill.updatedAt) {
+            // Unsaved local edits win, so push them back to the shared copy.
+            void savePendingBill(local).catch(() => {});
+          } else {
+            merged.set(bill.id, bill);
+          }
+        }
+        const all = sorted();
+        publish();
+        if (sessionTouchedRef.current) return;
+        const currentId = activeBillIdRef.current;
+        const currentBill = currentId ? merged.get(currentId) : undefined;
+        if (currentBill) {
+          applyBill(currentBill);
+        } else if (all[0] && (!currentId || finished.has(currentId))) {
+          applyBill(all[0]);
+        } else if (currentId && finished.has(currentId)) {
+          resetSession();
+        }
+      })
+      .catch((loadError) => {
+        if (!active || !merged.size) return;
+        showToast("warning", `Could not reach Firebase; using the pending bills saved on this device. ${loadError instanceof Error ? loadError.message : "Database error"}`);
+      })
+      .finally(() => {
+        if (active) setPendingBillsLoaded(true);
+      });
+
+    return () => { active = false; };
+  }, [showToast]);
+
+  // Persist the active tab after edits. The device copy is written immediately so
+  // a refresh or crash never loses the bill; Firebase follows once the saved
+  // sessions are merged (never overwriting newer data from another device).
+  useEffect(() => {
+    if (!activeBillId || suppressPendingSaveRef.current || (!cart.length && !selectedCustomer)) return;
+    const bill: PendingBill = {
+      id: activeBillId,
+      customer: selectedCustomer,
+      items: cart,
+      invoiceNo,
+      paymentMode,
+      cgstAmount,
+      received,
+      receivedTouched,
+      updatedAt: Date.now(),
+      status: "PENDING",
+    };
+    saveLocalPendingBill(bill);
+    setBillTabs((current) =>
+      current.some((entry) => entry.id === bill.id)
+        ? current.map((entry) => (entry.id === bill.id ? bill : entry))
+        : [bill, ...current]
+    );
+    if (!pendingBillsLoaded) return;
+    const timer = window.setTimeout(() => {
+      void savePendingBill(bill).catch((saveError) => {
+        showToast("error", `Pending bill could not be saved: ${saveError instanceof Error ? saveError.message : "Database error"}`);
+      });
+    }, 450);
+    return () => window.clearTimeout(timer);
+  }, [pendingBillsLoaded, activeBillId, cart, selectedCustomer, invoiceNo, paymentMode, cgstAmount, received, receivedTouched, showToast]);
+
+  // Attach the customer of a restored bill once the customer list arrives
+  useEffect(() => {
+    if (!customersLoaded || !restoredCustomerId || selectedCustomer) return;
+    const match = customers.find((customer) => customer.id === restoredCustomerId);
+    if (match) setSelectedCustomer(match);
+    setRestoredCustomerId(null);
+  }, [customers, customersLoaded, restoredCustomerId, selectedCustomer]);
+
+  // Keep the in-progress bill saved on this device so nothing is lost on refresh
+  useEffect(() => {
+    if (cart.length === 0) return;
+    writeDraft({
+      cart,
+      customerId: selectedCustomer?.id ?? null,
+      paymentMode,
+      invoiceNo,
+      updatedAt: Date.now(),
+    });
+  }, [cart, invoiceNo, paymentMode, selectedCustomer]);
+
+  // Today's numbers straight from the cached sales, no extra network call
+  useEffect(() => {
+    if (productsLoading) return;
+    const raw =
+      readCache<Record<string, Record<string, unknown>>>(CACHE_KEYS.SALES) ?? {};
+    const day = toDayKey();
+    const bills = new Set<number>();
+    let items = 0;
+    let amount = 0;
+    let profit = 0;
+    for (const row of Object.values(raw)) {
+      if (!row || String(row.date ?? "") !== day) continue;
+      const qty = Math.max(1, Number(row.quantity ?? 1) || 1);
+      const sale = Number(row.sale ?? 0);
+      const mrp = Number(row.mrp ?? 0);
+      const product = products.find((p) => p.name === String(row.productName ?? ""));
+      const cost =
+        product?.purchase && product.purchase > 0 ? product.purchase : mrp / 2;
+      items += qty;
+      amount += sale;
+      profit += sale - cost * qty;
+      if (row.createdAt) bills.add(Number(row.createdAt));
+    }
+    setTodayStats({ bills: bills.size, items, amount, profit });
+  }, [products, productsLoading]);
 
   useEffect(() => {
     if (!productsLoading && productTab === "scan" && scanInputRef.current) {
@@ -190,7 +498,47 @@ export default function AddSalePage() {
     if (!receivedTouched) setReceived(selectedCustomer ? 0 : payable);
   }, [payable, receivedTouched, selectedCustomer]);
 
+  useEffect(() => {
+    if (!upiDialogOpen) return;
+    let active = true;
+    setUpiQrCode(null);
+    setUpiQrError(null);
+    const upiId = process.env.NEXT_PUBLIC_UPI_ID?.trim();
+    if (!upiId) {
+      setUpiQrError("UPI payments are not configured. Add NEXT_PUBLIC_UPI_ID to enable QR payments.");
+      return () => { active = false; };
+    }
+    if (payable <= 0) {
+      setUpiQrError("Add products to this bill to create a payment QR code.");
+      return () => { active = false; };
+    }
+    const params = new URLSearchParams({
+      pa: upiId,
+      pn: process.env.NEXT_PUBLIC_UPI_NAME?.trim() || "KHERWAL BAZAAR",
+      am: payable.toFixed(2),
+      cu: "INR",
+      tn: invoiceNo ? `Bill ${invoiceNo}` : "Kherwal Bazaar sale",
+    });
+    QRCode.toDataURL(`upi://pay?${params.toString()}`, {
+      errorCorrectionLevel: "M",
+      margin: 1,
+      width: 512,
+    }).then((code) => {
+      if (active) setUpiQrCode(code);
+    }).catch((qrError: unknown) => {
+      if (active) setUpiQrError(qrError instanceof Error ? qrError.message : "Could not create the UPI QR code.");
+    });
+    return () => { active = false; };
+  }, [upiDialogOpen, payable, invoiceNo]);
+
   const addToCart = (product: Product) => {
+    sessionTouchedRef.current = true;
+    if (!activeBillIdRef.current) {
+      const id = makeBillId();
+      activeBillIdRef.current = id;
+      setActiveBillId(id);
+    }
+    if (!invoiceNo) setInvoiceNo(makeInvoiceNo());
     const price = priceInputs[product.name] ?? product.sale;
     setCart((prev) => {
       const existing = prev.find((i) => i.name === product.name);
@@ -238,46 +586,47 @@ export default function AddSalePage() {
   };
 
   const selectCustomer = (customer: CustomerSummary) => {
+    sessionTouchedRef.current = true;
     setSelectedCustomer(customer);
     setCustomerName("");
     setActiveCustomerSuggestion(-1);
     setCustomerPhone("");
     setCustomerAddress("");
     setCustomerSaveError(null);
+    setCustomerFormOpen(false);
     setProductTab("scan");
     requestAnimationFrame(() => scanInputRef.current?.focus());
   };
 
-  const saveNewCustomer = async () => {
+  const saveNewCustomer = () => {
     const name = customerName.trim();
     const phone = customerPhone.trim();
     const address = customerAddress.trim();
-    if (!name || !phone || !address) {
-      setCustomerSaveError("Enter the customer name, mobile number, and address.");
+    if (!name || !phone) {
+      setCustomerSaveError("Enter the customer name and mobile number.");
       return;
     }
 
+    const phoneDigits = phone.replace(/\D/g, "");
     const existing = customers.find(
-      (customer) => customer.name.trim().toLowerCase() === name.toLowerCase()
+      (customer) =>
+        customer.name.trim().toLowerCase() === name.toLowerCase() ||
+        (phoneDigits !== "" && customer.phone.replace(/\D/g, "") === phoneDigits)
     );
     if (existing) {
-      setCustomerSaveError("This customer already exists. Select them from the suggestions.");
+      selectCustomer(existing);
+      showToast("info", "Using the existing customer profile.");
       return;
     }
 
-    setCustomerSaving(true);
+    // Keep the new customer on this device. It is written to Firebase only when
+    // the bill is completed, so a wrong entry never reaches the shared database.
+    const draft = saveLocalCustomerDraft({ name, phone, address });
+    const customer = draftToCustomer(draft);
+    setCustomers((current) => [customer, ...current]);
     setCustomerSaveError(null);
-    try {
-      const customer = await createCustomer({ name, phone, address });
-      setCustomers((current) => [customer, ...current]);
-      selectCustomer(customer);
-    } catch (saveError) {
-      setCustomerSaveError(
-        saveError instanceof Error ? saveError.message : "Could not save customer."
-      );
-    } finally {
-      setCustomerSaving(false);
-    }
+    selectCustomer(customer);
+    showToast("success", "Customer saved on this device. It will sync when the bill is completed.");
   };
 
   const handleQuickAdd = async () => {
@@ -327,6 +676,7 @@ export default function AddSalePage() {
       setQaSale("");
       setQaCategory("");
       setQaBarcode("");
+      showToast("success", `${name} added to products and this bill.`);
     } catch (e) {
       setQaError(e instanceof Error ? e.message : "Failed to save product.");
     } finally {
@@ -335,6 +685,7 @@ export default function AddSalePage() {
   };
 
   const updateQty = (name: string, delta: number) => {
+    sessionTouchedRef.current = true;
     setCart((prev) =>
       prev
         .map((i) => (i.name === name ? { ...i, qty: i.qty + delta } : i))
@@ -343,6 +694,7 @@ export default function AddSalePage() {
   };
 
   const setItemSale = (name: string, value: string) => {
+    sessionTouchedRef.current = true;
     setCart((prev) =>
       prev.map((i) =>
         i.name === name ? { ...i, sale: Math.max(0, Number(value) || 0) } : i
@@ -351,6 +703,7 @@ export default function AddSalePage() {
   };
 
   const stepSale = (name: string, delta: number) => {
+    sessionTouchedRef.current = true;
     setCart((prev) =>
       prev.map((i) =>
         i.name === name ? { ...i, sale: Math.max(0, i.sale + delta) } : i
@@ -359,6 +712,7 @@ export default function AddSalePage() {
   };
 
   const setItemQty = (name: string, value: string) => {
+    sessionTouchedRef.current = true;
     setCart((prev) =>
       prev.map((i) =>
         i.name === name
@@ -369,18 +723,43 @@ export default function AddSalePage() {
   };
 
   const removeItem = (name: string) => {
+    sessionTouchedRef.current = true;
     setCart((prev) => prev.filter((i) => i.name !== name));
   };
 
-  const clearCart = () => setCart([]);
+  // Drop a device-only customer once no saved bill refers to it any more.
+  const discardUnusedLocalCustomer = (
+    customer: CustomerSummary | null,
+    remaining: PendingBill[]
+  ) => {
+    if (!customer || !isLocalCustomer(customer.id)) return;
+    if (remaining.some((bill) => bill.customer?.id === customer.id)) return;
+    removeLocalCustomerDraft(customer.id);
+    setCustomers((current) => current.filter((entry) => entry.id !== customer.id));
+  };
 
-  const handlePrintReceipt = async () => {
+  const clearCart = () => {
+    sessionTouchedRef.current = true;
+    setCart([]);
+    setInvoiceNo(null);
+    writeDraft(null);
+    // Drop the saved copy too, otherwise the cleared products would come back on refresh.
+    const id = activeBillIdRef.current;
+    if (!id) return;
+    deleteLocalPendingBill(id);
+    setBillTabs((tabs) => tabs.filter((bill) => bill.id !== id));
+    void deletePendingBill(id).catch(() => {});
+  };
+
+  const handlePrintReceipt = async (preopenedWindow?: Window | null) => {
     if (!selectedCustomer || cart.length === 0) return;
     if (payable <= 0) {
       showToast("warning", "The bill total must be greater than zero to make a payment QR.");
       return;
     }
-    const printWindow = window.open("", "_blank", "width=480,height=640");
+    const printWindow = preopenedWindow === undefined
+      ? window.open("", "_blank", "width=480,height=640")
+      : preopenedWindow;
     if (!printWindow) {
       showToast("warning", "Allow pop-ups to print the receipt.");
       return;
@@ -431,7 +810,7 @@ export default function AddSalePage() {
         .payment{margin-top:4mm;padding-top:3mm;border-top:1px dashed #555;text-align:center}
         .payment img{display:block;width:46mm;height:46mm;margin:2mm auto;image-rendering:pixelated}
         .note{font-size:9px;line-height:1.4}.unconfigured{margin-top:3mm;font-size:9px}
-        </style></head><body><h1>KHERWAL BAZAAR</h1><div class="subtitle">Sales Bill</div><p class="meta"><strong>Customer:</strong> ${escapeHtml(selectedCustomer.name)}<br><strong>Mobile:</strong> ${escapeHtml(selectedCustomer.phone)}<br><strong>Date:</strong> ${escapeHtml(new Date().toLocaleString("en-IN"))}</p><table><thead><tr><th>Product</th><th class="center">Qty</th><th class="right">Amount</th></tr></thead><tbody>${rows}</tbody></table><div class="summary"><div><span>Product Amount</span><span>₹${fmt(subtotal)}</span></div><div><span>GST (${GST_RATE}%)</span><span>₹${fmt(gstAmount)}</span></div><div><span>CGST</span><span>₹${fmt(cgstAmount)}</span></div><div><span>Total</span><span>₹${fmt(totalWithTax)}</span></div><div><span>Discount</span><span>−₹${fmt(discount)}</span></div><div class="total"><span>Net Pay</span><span>₹${fmt(payable)}</span></div><div><span>Received</span><span>₹${fmt(received)}</span></div><div><span>Balance</span><span>₹${fmt(Math.max(0, payable - received))}</span></div></div>${qrCode ? `<div class="payment"><strong>Scan to Pay ₹${fmt(payable)}</strong><img src="${qrCode}" alt="UPI payment QR code"><div class="note">UPI ID: ${escapeHtml(upiId!)}<br>Thank you for shopping with us!</div></div>` : `<div class="payment unconfigured">UPI QR is unavailable. Configure NEXT_PUBLIC_UPI_ID to print payment QR codes.</div>`}</body></html>`);
+        </style></head><body><h1>KHERWAL BAZAAR</h1><div class="subtitle">Sales Bill</div><p class="meta">${invoiceNo ? `<strong>Bill No:</strong> ${escapeHtml(invoiceNo)}<br>` : ""}<strong>Customer:</strong> ${escapeHtml(selectedCustomer.name)}<br><strong>Mobile:</strong> ${escapeHtml(selectedCustomer.phone)}<br><strong>Date:</strong> ${escapeHtml(new Date().toLocaleString("en-IN"))}<br><strong>Payment:</strong> ${escapeHtml(paymentMode)}</p><table><thead><tr><th>Product</th><th class="center">Qty</th><th class="right">Amount</th></tr></thead><tbody>${rows}</tbody></table><div class="summary"><div><span>Product Amount</span><span>₹${fmt(subtotal)}</span></div><div><span>GST (${GST_RATE}%)</span><span>₹${fmt(gstAmount)}</span></div><div><span>CGST</span><span>₹${fmt(cgstAmount)}</span></div><div><span>Total</span><span>₹${fmt(totalWithTax)}</span></div><div><span>Discount</span><span>−₹${fmt(discount)}</span></div><div class="total"><span>Net Pay</span><span>₹${fmt(payable)}</span></div><div><span>Received</span><span>₹${fmt(received)}</span></div><div><span>Balance</span><span>₹${fmt(Math.max(0, payable - received))}</span></div></div>${qrCode ? `<div class="payment"><strong>Scan to Pay ₹${fmt(payable)}</strong><img src="${qrCode}" alt="UPI payment QR code"><div class="note">UPI ID: ${escapeHtml(upiId!)}<br>Thank you for shopping with us!</div></div>` : `<div class="payment unconfigured">UPI QR is unavailable. Configure NEXT_PUBLIC_UPI_ID to print payment QR codes.</div>`}</body></html>`);
       printWindow.document.close();
     } catch (printError) {
       printWindow.close();
@@ -439,7 +818,12 @@ export default function AddSalePage() {
     }
   };
 
-  const handleSubmit = async (quickPay = false) => {
+  const handleSubmit = async (
+    quickPay = false,
+    printAfterSubmit = false,
+    preopenedPrintWindow?: Window | null,
+  ) => {
+    if (submitting) return;
     if (!selectedCustomer) {
       setError("Select a customer before submitting this sale.");
       return;
@@ -453,6 +837,28 @@ export default function AddSalePage() {
     if (pendingPayable !== null) {
       setError("Sync the previous sale amount before submitting another sale.");
       return;
+    }
+
+    // A customer saved on this device is written to Firebase together with the
+    // bill, so the shared customer list only gets customers that really bought.
+    let saleCustomer = selectedCustomer;
+    if (isLocalCustomer(saleCustomer.id)) {
+      try {
+        const localCustomerId = saleCustomer.id;
+        saleCustomer = await pushLocalCustomer(saleCustomer);
+        setSelectedCustomer(saleCustomer);
+        setCustomers((current) => [
+          saleCustomer,
+          ...current.filter(
+            (entry) => entry.id !== localCustomerId && entry.id !== saleCustomer.id
+          ),
+        ]);
+      } catch (customerError) {
+        setError(
+          `Customer could not be saved to Firebase: ${customerError instanceof Error ? customerError.message : "Database error"}`
+        );
+        return;
+      }
     }
 
     const receivedAmount = quickPay ? finalPayable : received;
@@ -476,9 +882,33 @@ export default function AddSalePage() {
           qty: i.qty,
         })),
         saleType: selectedCustomer ? "credit" : "cash",
-        customer: selectedCustomer,
+        customer: saleCustomer,
         received: receivedAmount,
+        paymentMethod: paymentMode,
+        invoiceNo: invoiceNo ?? undefined,
+        idempotencyKey: activeBillId ?? undefined,
       });
+
+      if (printAfterSubmit) {
+        await handlePrintReceipt(preopenedPrintWindow);
+        setUpiDialogOpen(false);
+      }
+
+      const completedBillId = activeBillIdRef.current;
+      if (completedBillId) {
+        // The sale record is written; hide the finished bill everywhere. The local
+        // copy is flagged first so even an immediate reload cannot reopen it.
+        markLocalPendingBillCompleted(completedBillId);
+        suppressPendingSaveRef.current = true;
+        setBillTabs((tabs) => tabs.filter((bill) => bill.id !== completedBillId));
+        setClosedBillTabIds((closed) => closed.filter((id) => id !== completedBillId));
+        const nextId = makeBillId();
+        activeBillIdRef.current = nextId;
+        setActiveBillId(nextId);
+        void completePendingBill(completedBillId).catch((cleanupError) => {
+          showToast("warning", `Sale is complete; the pending entry could not be closed automatically: ${cleanupError instanceof Error ? cleanupError.message : "Database error"}`);
+        });
+      }
 
       if (autoSendWhatsapp && selectedCustomer.phone.trim()) {
         const digits = selectedCustomer.phone.replace(/\D/g, "");
@@ -490,6 +920,7 @@ export default function AddSalePage() {
         const message = [
           "*KHERWAL BAZAAR*",
           "Sale receipt",
+          ...(invoiceNo ? [`Bill No: ${invoiceNo}`] : []),
           `Customer: ${selectedCustomer.name}`,
           "",
           ...cart.map((item) => `${item.name} × ${item.qty} — ₹${fmt(item.sale * item.qty)}`),
@@ -498,6 +929,7 @@ export default function AddSalePage() {
           `Total: ₹${fmt(totalWithTax)}`,
           `Discount: ₹${fmt(discount)}`,
           `Net Pay: ₹${fmt(finalPayable)}`,
+          `Payment Mode: ${paymentMode}`,
           `Received: ₹${fmt(receivedAmount)}`,
           `Balance: ₹${fmt(Math.max(0, finalPayable - receivedAmount))}`,
         ].join("\n");
@@ -511,14 +943,18 @@ export default function AddSalePage() {
 
       setCart([]);
       setCgstAmount(0);
+      setInvoiceNo(null);
+      writeDraft(null);
       setSelectedCustomer(null);
       setCustomerName("");
       setCustomerPhone("");
       setCustomerAddress("");
       setCustomerSaveError(null);
+      setCustomerFormOpen(false);
       setAutoSendWhatsapp(false);
       setReceivedTouched(false);
       setPendingPayable(finalPayable);
+      if (completedBillId) window.setTimeout(() => { suppressPendingSaveRef.current = false; }, 0);
 
       try {
         await savePayableAmount(finalPayable);
@@ -530,12 +966,40 @@ export default function AddSalePage() {
         );
       }
     } catch (e) {
+      preopenedPrintWindow?.close();
       whatsappWindow?.close();
       setError(e instanceof Error ? e.message : "Failed to submit sale.");
     } finally {
       setSubmitting(false);
     }
   };
+
+  // Keep the latest submit handler reachable from keyboard shortcuts
+  useEffect(() => {
+    submitRef.current = handleSubmit;
+  });
+
+  // Keyboard shortcuts for fast billing
+  useEffect(() => {
+    const onKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "F2") {
+        event.preventDefault();
+        const target =
+          productTab === "scan" ? scanInputRef.current : searchInputRef.current;
+        target?.focus();
+        target?.select();
+      } else if (event.key === "F9") {
+        event.preventDefault();
+        submitRef.current?.(true);
+      } else if (event.key === "Escape" && upiDialogOpen) {
+        setUpiDialogOpen(false);
+      } else if (event.key === "Escape" && quickAddOpen) {
+        setQuickAddOpen(false);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [productTab, quickAddOpen, upiDialogOpen]);
 
   const retryPayableSync = useCallback(async () => {
     if (pendingPayable === null || syncingPayable) return;
@@ -591,10 +1055,12 @@ export default function AddSalePage() {
 
   const chip = (name: string) => name.charAt(0).toUpperCase();
   const customerQuery = customerName.trim().toLocaleLowerCase();
+  const customerPhoneQuery = customerQuery.replace(/\D/g, "");
   const matchingCustomers = customerQuery
     ? customers
         .filter((customer) =>
-          customer.name.trim().toLocaleLowerCase().includes(customerQuery)
+          customer.name.trim().toLocaleLowerCase().includes(customerQuery) ||
+          (customerPhoneQuery.length > 0 && customer.phone.replace(/\D/g, "").includes(customerPhoneQuery))
         )
         .sort((a, b) => {
           const aStartsWith = a.name.trim().toLocaleLowerCase().startsWith(customerQuery);
@@ -629,25 +1095,280 @@ export default function AddSalePage() {
     }
   };
 
+  const makeCurrentPendingBill = (id: string | null = activeBillId): PendingBill | null => {
+    if (!id) return null;
+    return {
+      id,
+      customer: selectedCustomer,
+      items: cart,
+      invoiceNo,
+      paymentMode,
+      cgstAmount,
+      received,
+      receivedTouched,
+      updatedAt: Date.now(),
+      status: "PENDING",
+    };
+  };
+
+  const billLabel = (bill: PendingBill) => {
+    const name = bill.customer?.name?.trim();
+    if (name) return name;
+    const tail = (bill.invoiceNo ?? "").slice(-3);
+    return tail ? `Bill ${tail}` : "New bill";
+  };
+
+  const storeCurrentBill = async () => {
+    const id = activeBillIdRef.current ?? makeBillId();
+    if (!activeBillIdRef.current) {
+      activeBillIdRef.current = id;
+      setActiveBillId(id);
+    }
+    const current = makeCurrentPendingBill(id);
+    if (!current || (!current.items.length && !current.customer)) return;
+    saveLocalPendingBill(current);
+    await savePendingBill(current);
+    setBillTabs((tabs) => [current, ...tabs.filter((bill) => bill.id !== current.id)]);
+  };
+
+  const openBillTab = async (bill: PendingBill) => {
+    try {
+      await storeCurrentBill();
+      sessionTouchedRef.current = true;
+      activeBillIdRef.current = bill.id;
+      suppressPendingSaveRef.current = true;
+      setActiveBillId(bill.id);
+      setClosedBillTabIds((closed) => closed.filter((id) => id !== bill.id));
+      setCart(bill.items);
+      setSelectedCustomer(bill.customer);
+      setInvoiceNo(bill.invoiceNo);
+      setPaymentMode((PAYMENT_MODES.some((mode) => mode.label === bill.paymentMode)
+        ? bill.paymentMode
+        : "Cash") as PaymentMode);
+      setCgstAmount(bill.cgstAmount ?? 0);
+      setReceived(bill.received ?? 0);
+      setReceivedTouched(Boolean(bill.receivedTouched));
+      setCustomerFormOpen(false);
+      setError(null);
+      window.setTimeout(() => { suppressPendingSaveRef.current = false; }, 0);
+    } catch (openError) {
+      showToast("error", `Could not save the current bill before switching: ${openError instanceof Error ? openError.message : "Database error"}`);
+    }
+  };
+
+  const startNewBillTab = async () => {
+    try {
+      await storeCurrentBill();
+      const id = makeBillId();
+      sessionTouchedRef.current = true;
+      activeBillIdRef.current = id;
+      suppressPendingSaveRef.current = true;
+      setActiveBillId(id);
+      setCart([]);
+      setSelectedCustomer(null);
+      setInvoiceNo(null);
+      setPaymentMode("Cash");
+      setCgstAmount(0);
+      setReceived(0);
+      setReceivedTouched(false);
+      setCustomerName("");
+      setCustomerPhone("");
+      setCustomerAddress("");
+      setCustomerFormOpen(true);
+      setError(null);
+      window.setTimeout(() => { suppressPendingSaveRef.current = false; }, 0);
+    } catch (saveError) {
+      showToast("error", `Could not save the current bill: ${saveError instanceof Error ? saveError.message : "Database error"}`);
+    }
+  };
+
+  const closeBillTab = async (bill: PendingBill) => {
+    if (!await confirmAction({ title: "Close this bill tab?", message: "This bill is saved in your bill tabs. You can reopen it later.", confirmLabel: "Close tab", cancelLabel: "Keep open" })) return;
+    try {
+      if (bill.id === activeBillId) await storeCurrentBill();
+      setClosedBillTabIds((closed) => closed.includes(bill.id) ? closed : [...closed, bill.id]);
+      const next = billTabs.find((entry) => entry.id !== bill.id && !closedBillTabIds.includes(entry.id));
+      if (next) await openBillTab(next);
+      else if (bill.id === activeBillId) {
+        const id = makeBillId();
+        sessionTouchedRef.current = true;
+        activeBillIdRef.current = id;
+        suppressPendingSaveRef.current = true;
+        setActiveBillId(id);
+        setCart([]);
+        setSelectedCustomer(null);
+        setInvoiceNo(null);
+        setCgstAmount(0);
+        setReceived(0);
+        setReceivedTouched(false);
+        setCustomerFormOpen(false);
+        window.setTimeout(() => { suppressPendingSaveRef.current = false; }, 0);
+      }
+      showToast("success", "Bill tab closed.");
+    } catch (closeError) {
+      showToast("error", `Could not close the tab safely: ${closeError instanceof Error ? closeError.message : "Database error"}`);
+    }
+  };
+
+  const saveAsPending = async () => {
+    if (!cart.length) {
+      showToast("warning", "Add at least one product before saving this bill.");
+      return;
+    }
+    setPendingAction(true);
+    try {
+      const id = activeBillIdRef.current ?? makeBillId();
+      if (!activeBillIdRef.current) {
+        activeBillIdRef.current = id;
+        setActiveBillId(id);
+      }
+      const bill: PendingBill = {
+        id,
+        customer: selectedCustomer,
+        items: cart,
+        invoiceNo,
+        paymentMode,
+        cgstAmount,
+        received,
+        receivedTouched,
+        updatedAt: Date.now(),
+        status: "PENDING",
+      };
+      saveLocalPendingBill(bill);
+      await savePendingBill(bill);
+      setBillTabs((tabs) => [bill, ...tabs.filter((entry) => entry.id !== id)]);
+      showToast("success", "Bill saved as pending.");
+    } catch (saveError) {
+      showToast("error", `Could not save pending bill: ${saveError instanceof Error ? saveError.message : "Database error"}`);
+    } finally {
+      setPendingAction(false);
+    }
+  };
+
+  const cancelCurrentBill = async () => {
+    if (!await confirmAction({ title: "Cancel this bill?", message: "This will permanently discard the products and customer details in this bill.", confirmLabel: "Cancel bill", cancelLabel: "Keep bill", tone: "danger" })) return;
+    setPendingAction(true);
+    try {
+      const cancelledId = activeBillIdRef.current;
+      if (cancelledId) {
+        await deletePendingBill(cancelledId);
+        deleteLocalPendingBill(cancelledId);
+        const remaining = billTabs.filter((bill) => bill.id !== cancelledId);
+        setBillTabs(remaining);
+        discardUnusedLocalCustomer(selectedCustomer, remaining);
+      }
+      const id = makeBillId();
+      sessionTouchedRef.current = true;
+      activeBillIdRef.current = id;
+      suppressPendingSaveRef.current = true;
+      setActiveBillId(id);
+      setCart([]);
+      writeDraft(null);
+      setSelectedCustomer(null);
+      setInvoiceNo(null);
+      setPaymentMode("Cash");
+      setCgstAmount(0);
+      setReceived(0);
+      setReceivedTouched(false);
+      setCustomerName("");
+      setCustomerPhone("");
+      setCustomerAddress("");
+      setCustomerFormOpen(false);
+      setError(null);
+      window.setTimeout(() => { suppressPendingSaveRef.current = false; }, 0);
+      showToast("success", "Bill cancelled.");
+    } catch (cancelError) {
+      showToast("error", `Could not cancel the bill: ${cancelError instanceof Error ? cancelError.message : "Database error"}`);
+    } finally {
+      setPendingAction(false);
+    }
+  };
+
   return (
     <AppShell title="" active="Sales">
-      <div className="flex items-center gap-2">
-        <Link
-          href="/"
-          aria-label="Go to home"
-          title="Go to home"
-          className="flex h-8 w-8 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 shadow-sm transition hover:bg-slate-100 hover:text-slate-900"
-        >
-          <ArrowLeft className="h-4 w-4" />
-        </Link>
-        <ShoppingCart className="h-5 w-5 text-violet-700" aria-hidden="true" />
-        <h1 className="text-xl font-bold text-slate-800">Sales</h1>
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+        <div className="flex items-center gap-2">
+          <Link
+            href="/"
+            aria-label="Go to home"
+            title="Go to home"
+            className="flex h-8 w-8 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 shadow-sm transition hover:bg-slate-100 hover:text-slate-900"
+          >
+            <ArrowLeft className="h-4 w-4" />
+          </Link>
+          <ShoppingCart className="h-5 w-5 text-violet-700" aria-hidden="true" />
+          <h1 className="text-xl font-bold text-slate-800">Sales</h1>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-1.5">
+          {[
+            {
+              label: "Total Customer",
+              value: customersLoaded ? String(customers.length) : "—",
+              Icon: Users,
+              tone: "bg-amber-500 border-amber-700",
+            },
+            {
+              label: "Items Sold",
+              value: todayStats ? String(todayStats.items) : "—",
+              Icon: Package,
+              tone: "bg-blue-500 border-blue-700",
+            },
+            {
+              label: "Sale Today",
+              value: todayStats ? `₹${fmt(todayStats.amount)}` : "—",
+              Icon: IndianRupee,
+              tone: "bg-purple-500 border-purple-700",
+            },
+            {
+              label: "Profit Today",
+              value: todayStats ? `₹${fmt(Math.round(todayStats.profit))}` : "—",
+              Icon: TrendingUp,
+              tone: "bg-green-500 border-green-700",
+            },
+          ].map(({ label, value, Icon, tone }) => (
+            <span
+              key={label}
+              className={`inline-flex items-center gap-2.5 rounded-xl border-b-4 px-5 py-3 text-xs font-semibold text-white shadow-sm ${tone}`}
+            >
+              <Icon className="h-5 w-5 flex-none text-white/80" aria-hidden="true" />
+              <span>{label}</span>
+              <span className="text-lg font-extrabold leading-none">{value}</span>
+            </span>
+          ))}
+        </div>
       </div>
+
+      <section aria-label="Customer bill tabs" className="flex items-end gap-2 rounded-lg border border-slate-200 bg-slate-100 p-2">
+        <div className="flex min-w-0 flex-1 items-end gap-1 overflow-x-auto" role="tablist" aria-label="Open bills">
+          {!activeBillId && pendingBillsLoaded && billTabs.length === 0 && <span className="px-2 text-xs text-slate-500">Start a bill to begin.</span>}
+          {billTabs.filter((bill) => !closedBillTabIds.includes(bill.id)).map((bill) => (
+            <div key={bill.id} className={`relative inline-flex h-10 shrink-0 items-center gap-1 rounded-t-lg rounded-b-none border border-b-0 px-2 transition-all duration-500 ease-in-out ${activeBillId === bill.id ? "z-10 -translate-y-0.5 border-emerald-600 bg-emerald-500 text-white shadow-[0_-2px_8px_rgba(16,185,129,0.28)] ring-1 ring-emerald-300" : "translate-y-0 border-yellow-300 bg-yellow-100 text-slate-800 hover:bg-yellow-200"}`}>
+              <button type="button" role="tab" aria-selected={activeBillId === bill.id} onClick={() => void openBillTab(bill)} className={`flex items-center gap-1.5 text-xs font-semibold ${activeBillId === bill.id ? "text-white" : "text-slate-700"}`}>
+                <span className="max-w-32 truncate">{billLabel(bill)}</span>
+                <span className={`rounded px-1 text-[9px] font-bold ${activeBillId === bill.id ? "bg-emerald-700 text-emerald-50" : "bg-yellow-200 text-yellow-900"}`}>PENDING</span>
+              </button>
+              <button type="button" onClick={() => void closeBillTab(bill)} aria-label={`Close ${billLabel(bill)} tab`} className={`rounded p-0.5 ${activeBillId === bill.id ? "text-emerald-50 hover:bg-emerald-700 hover:text-white" : "text-slate-500 hover:bg-red-100 hover:text-red-600"}`}><X className="h-3.5 w-3.5" /></button>
+            </div>
+          ))}
+          {activeBillId && !billTabs.some((bill) => bill.id === activeBillId) && <span role="tab" aria-selected="true" className="relative z-10 inline-flex h-10 shrink-0 -translate-y-0.5 items-center rounded-t-lg rounded-b-none border border-emerald-600 border-b-0 bg-emerald-500 px-3 text-xs font-semibold text-white shadow-[0_-2px_8px_rgba(16,185,129,0.28)] ring-1 ring-emerald-300 transition-all duration-500 ease-in-out">New customer bill</span>}
+        </div>
+        <button
+          type="button"
+          onClick={() => void startNewBillTab()}
+          title="Start a new customer bill"
+          aria-label="Add new customer bill"
+          className="inline-flex h-9 shrink-0 items-center gap-1 rounded-md bg-blue-600 px-3 text-xs font-bold text-white hover:bg-blue-700"
+        >
+          <Plus className="h-4 w-4" /> New customer bill
+        </button>
+      </section>
 
       <div suppressHydrationWarning className="grid grid-cols-12 gap-4">
         {/* LEFT SECTION: FORM AND PRODUCT SELECTION */}
         <div className="col-span-12 space-y-2">
-          {/* 1. Customer Section */}
+          {/* 1. Customer Section - only while adding a customer or when one is selected */}
+          {(customerFormOpen || selectedCustomer) && (
           <div suppressHydrationWarning className="bg-white rounded-none p-4 border border-slate-200">
             <h3 suppressHydrationWarning className="text-xs font-bold text-slate-800 mb-2">1. Customer</h3>
 
@@ -664,12 +1385,22 @@ export default function AddSalePage() {
                     <p className="text-[10px] text-slate-400">
                       {selectedCustomer.phone} · {selectedCustomer.address || "No address"}
                     </p>
+                    {Number(selectedCustomer.totalAmount) > 0 ? (
+                      <p className="text-[10px] font-semibold text-red-600">
+                        Khata due ₹{fmt(Number(selectedCustomer.totalAmount))}
+                      </p>
+                    ) : (
+                      <p className="text-[10px] font-semibold text-emerald-600">
+                        No pending dues
+                      </p>
+                    )}
                   </div>
                 </div>
                 <button
                   type="button"
                   onClick={() => {
                     setSelectedCustomer(null);
+                    setCustomerFormOpen(false);
                     setCustomerName("");
                     setCustomerPhone("");
                     setCustomerAddress("");
@@ -681,13 +1412,14 @@ export default function AddSalePage() {
                   <X className="w-4 h-4" />
                 </button>
               </div>
-            ) : (
+            ) : customerFormOpen ? (
               <div className="grid grid-cols-1 gap-3 md:grid-cols-12 md:items-end">
                 <div className="relative md:col-span-3">
                   <input
                     id="sales-customer-name"
                     type="text"
                     autoComplete="off"
+                    autoFocus
                     aria-label="Input Name"
                     value={customerName}
                     role="combobox"
@@ -767,19 +1499,29 @@ export default function AddSalePage() {
                   />
                 </div>
 
-                <button
-                  type="button"
-                  onClick={() => void saveNewCustomer()}
-                  disabled={
-                    customerSaving ||
-                    !customerName.trim() ||
-                    !customerPhone.trim() ||
-                    !customerAddress.trim()
-                  }
-                  className="h-[34px] bg-blue-600 px-4 text-xs font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 md:col-span-2"
-                >
-                  {customerSaving ? "Saving..." : "Save"}
-                </button>
+                <div className="flex gap-2 md:col-span-2">
+                  <button
+                    type="button"
+                    onClick={saveNewCustomer}
+                    disabled={!customerName.trim() || !customerPhone.trim()}
+                    className="h-[34px] flex-1 bg-blue-600 px-3 text-xs font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Save
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCustomerFormOpen(false);
+                      setCustomerName("");
+                      setCustomerPhone("");
+                      setCustomerAddress("");
+                      setCustomerSaveError(null);
+                    }}
+                    className="h-[34px] border border-slate-300 bg-slate-100 px-3 text-xs font-semibold text-slate-600 hover:bg-slate-200"
+                  >
+                    Cancel
+                  </button>
+                </div>
 
                 {customerSaveError && (
                   <p role="alert" className="text-xs font-medium text-red-600 md:col-span-12">
@@ -787,13 +1529,14 @@ export default function AddSalePage() {
                   </p>
                 )}
               </div>
-            )}
-            {cart.length > 0 && !selectedCustomer && (
-              <p role="status" className="mt-2 text-xs font-medium text-amber-700">
-                Select a customer before recording this sale.
-              </p>
-            )}
+            ) : null}
           </div>
+          )}
+          {cart.length > 0 && !selectedCustomer && !customerFormOpen && (
+            <p role="status" className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800">
+              Select a customer before recording this sale.
+            </p>
+          )}
 
           {/* 2. Product Details for Sales */}
           <div suppressHydrationWarning className="bg-white rounded-xl p-4 border border-slate-200">
@@ -861,6 +1604,32 @@ export default function AddSalePage() {
                   + Add
                 </button>
               </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setQaError(null);
+                  if (!qaName && search.trim()) setQaName(search.trim());
+                  setQuickAddOpen(true);
+                }}
+                className="inline-flex flex-none items-center gap-1 rounded-md border border-dashed border-emerald-500 px-3 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-50"
+              >
+                <PackagePlus className="h-4 w-4" />
+                New Product
+              </button>
+              {cart.length > 0 && (
+                <button
+                  type="button"
+                  onClick={clearCart}
+                  className="inline-flex flex-none items-center gap-1 rounded-md border border-rose-300 px-3 py-1.5 text-xs font-semibold text-rose-600 hover:bg-rose-50"
+                >
+                  <Trash2 className="h-4 w-4" />
+                  Clear Bill
+                </button>
+              )}
+              <span className="hidden flex-none items-center gap-1 text-[10px] font-medium text-slate-400 lg:inline-flex">
+                <Keyboard className="h-3.5 w-3.5" aria-hidden="true" />
+                F2 focus · F9 quick pay · Esc close
+              </span>
             </div>
 
             {productTab === "scan" ? (
@@ -911,13 +1680,15 @@ export default function AddSalePage() {
                     <th className="border border-slate-300 bg-slate-100 px-2 py-2 font-semibold text-right text-slate-700">MRP (₹)</th>
                     <th className="border border-slate-300 bg-slate-100 px-2 py-2 font-semibold text-right text-slate-700">Sale (₹)</th>
                     <th className="border border-slate-300 bg-slate-100 px-2 py-2 font-semibold text-center text-slate-700">Qty</th>
+                    <th className="border border-slate-300 bg-slate-100 px-2 py-2 font-semibold text-right text-slate-700">Amount (₹)</th>
+                    <th className="border border-slate-300 bg-slate-100 px-2 py-2 font-semibold text-right text-slate-700">Profit (₹)</th>
                     <th className="border border-slate-300 bg-slate-100 px-2 py-2 font-semibold text-left text-slate-700">Size</th>
                     <th className="border border-slate-300 bg-slate-100 px-2 py-2 font-semibold text-center text-slate-700">Delete</th>
                   </tr>
                 </thead>
                 <tbody className="text-xs">
                   {cart.length === 0 ? (
-                    <tr><td colSpan={8} className="h-24 border border-slate-300 text-center text-slate-400">Scan a barcode or use + Add to select products.</td></tr>
+                    <tr><td colSpan={10} className="h-24 border border-slate-300 text-center text-slate-400">Scan a barcode or use + Add to select products.</td></tr>
                   ) : cart.map((item) => (
                     <tr key={item.name} className="border-b border-slate-200">
                       <td className="border border-slate-300 px-2 py-2 font-medium text-slate-800">{item.name}</td>
@@ -929,6 +1700,10 @@ export default function AddSalePage() {
                       </td>
                       <td className="border border-slate-300 px-2 py-2 text-center">
                         <input aria-label={`Quantity for ${item.name}`} type="number" min="1" value={item.qty} onChange={(event) => setItemQty(item.name, event.target.value)} className="w-14 border border-slate-200 px-1 py-1 text-center" />
+                      </td>
+                      <td className="border border-slate-300 px-2 py-2 text-right font-semibold text-slate-800">{fmt(item.sale * item.qty)}</td>
+                      <td className={`border border-slate-300 px-2 py-2 text-right font-semibold ${(item.sale - item.purchase) * item.qty >= 0 ? "text-emerald-700" : "text-red-600"}`}>
+                        {fmt((item.sale - item.purchase) * item.qty)}
                       </td>
                       <td className="border border-slate-300 px-2 py-2 text-slate-600">{item.size || "—"}</td>
                       <td className="border border-slate-300 px-2 py-2 text-center"><button type="button" onClick={() => removeItem(item.name)} aria-label={`Delete ${item.name}`} className="text-red-600 hover:text-red-800"><Trash2 className="mx-auto h-4 w-4" /></button></td>
@@ -1167,7 +1942,20 @@ export default function AddSalePage() {
 
             <button
               type="button"
-              onClick={handleSubmit}
+              onClick={() => void saveAsPending()}
+              disabled={pendingAction || submitting || cart.length === 0}
+              className="w-full rounded-lg border border-amber-300 bg-amber-50 py-2.5 text-xs font-bold text-amber-800 hover:bg-amber-100 disabled:opacity-50"
+            >
+              {pendingAction ? "Saving pending bill…" : "Save as Pending"}
+            </button>
+
+            <button type="button" onClick={() => void cancelCurrentBill()} disabled={pendingAction || submitting} className="w-full rounded-lg border border-slate-300 bg-white py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-50">
+              Cancel Bill
+            </button>
+
+            <button
+              type="button"
+              onClick={() => void handleSubmit(false)}
               disabled={
                 submitting || cart.length === 0 || !selectedCustomer || pendingPayable !== null
               }
@@ -1176,10 +1964,10 @@ export default function AddSalePage() {
               <Check className="w-4 h-4" />
               <span>
                 {submitting
-                  ? "Saving..."
+                  ? "Completing..."
                   : pendingPayable !== null
                     ? "Sync previous sale first"
-                    : "Submit Sale"}
+                    : "Complete Bill"}
               </span>
             </button>
           </div>
@@ -1211,9 +1999,16 @@ export default function AddSalePage() {
         </div>
       )}
 
+      {/* Leaves room for the fixed totals bar so the last cards stay clickable */}
+      <div aria-hidden="true" className="h-24" />
+
       <div className="fixed inset-x-0 bottom-0 z-40 border-t border-slate-200 bg-white/95 px-4 py-2 shadow-[0_-4px_12px_rgba(15,23,42,0.08)] backdrop-blur">
         <div className="mx-auto flex max-w-[1600px] flex-wrap items-center justify-between gap-3">
           <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Bill No</p>
+              <p className="text-sm font-bold text-slate-700">{invoiceNo ?? "New bill"}</p>
+            </div>
             <div>
               <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Net Pay</p>
               <p className="text-xl font-bold text-green-700">₹{fmt(payable)}</p>
@@ -1248,6 +2043,31 @@ export default function AddSalePage() {
                 />
               </span>
             </label>
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Payment</p>
+              <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Payment mode">
+                {PAYMENT_MODES.map(({ label, icon: Icon }) => (
+                  <button
+                    key={label}
+                    type="button"
+                    onClick={() => {
+                      sessionTouchedRef.current = true;
+                      setPaymentMode(label);
+                      setUpiDialogOpen(label === "UPI");
+                    }}
+                    aria-pressed={paymentMode === label}
+                    className={`inline-flex h-11 min-w-16 items-center justify-center gap-1.5 rounded-lg border px-3 text-xs font-bold shadow-sm transition-all duration-200 sm:h-12 sm:min-w-20 sm:gap-2 sm:px-4 sm:text-sm ${
+                      paymentMode === label
+                        ? "border-emerald-600 bg-emerald-600 text-white shadow-emerald-200 ring-2 ring-emerald-200"
+                        : "border-slate-300 bg-white text-slate-700 hover:border-emerald-300 hover:bg-emerald-50"
+                    }`}
+                  >
+                    <Icon className="h-4 w-4 sm:h-5 sm:w-5" aria-hidden="true" />
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
 
           <div className="flex flex-wrap items-center justify-end gap-2">
@@ -1297,6 +2117,68 @@ export default function AddSalePage() {
         )}
       </div>
       <div aria-hidden="true" className="h-28" />
+
+      {upiDialogOpen && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/55 p-4 backdrop-blur-sm"
+          onMouseDown={(event) => { if (event.target === event.currentTarget) setUpiDialogOpen(false); }}
+        >
+          <section role="dialog" aria-modal="true" aria-labelledby="upi-dialog-title" className="w-full max-w-md overflow-hidden rounded-3xl border border-white/70 bg-white shadow-2xl ring-1 ring-black/10 animate-toast-in">
+            <div className="relative overflow-hidden bg-gradient-to-br from-emerald-600 via-teal-600 to-cyan-700 px-6 pb-7 pt-6 text-white">
+              <div className="absolute -right-10 -top-16 h-44 w-44 rounded-full bg-white/10" />
+              <div className="relative flex items-start justify-between gap-4">
+                <div>
+                  <span className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-white/15 ring-1 ring-white/20"><QrCode className="h-5 w-5" /></span>
+                  <h2 id="upi-dialog-title" className="mt-4 text-lg font-bold">Scan to pay with UPI</h2>
+                  <p className="mt-1 text-sm text-emerald-50">Kherwal Bazaar · {invoiceNo ?? "New bill"}</p>
+                </div>
+                <button type="button" onClick={() => setUpiDialogOpen(false)} aria-label="Close UPI payment popup" className="rounded-xl p-2 text-white/80 transition hover:bg-white/15 hover:text-white"><X className="h-5 w-5" /></button>
+              </div>
+              <div className="relative mt-5 flex items-end justify-between gap-3">
+                <div>
+                  <p className="text-xs font-medium uppercase tracking-[0.16em] text-emerald-100">Bill total</p>
+                  <p className="mt-1 text-4xl font-extrabold tracking-tight">₹{fmt(payable)}</p>
+                </div>
+                {selectedCustomer && <p className="max-w-36 truncate rounded-full bg-white/15 px-3 py-1.5 text-xs font-semibold ring-1 ring-white/20">{selectedCustomer.name}</p>}
+              </div>
+            </div>
+            <div className="p-6 text-center">
+              {upiQrCode ? (
+                <div className="mx-auto w-fit rounded-3xl border border-slate-100 bg-white p-3 shadow-[0_12px_35px_rgba(15,23,42,0.12)]">
+                  <img src={upiQrCode} alt={`UPI payment QR code for ₹${fmt(payable)}`} className="h-56 w-56 sm:h-64 sm:w-64" />
+                </div>
+              ) : upiQrError ? (
+                <div role="status" className="mx-auto flex min-h-56 max-w-xs flex-col items-center justify-center rounded-2xl border border-amber-200 bg-amber-50 px-5 py-6 text-amber-800">
+                  <AlertCircle className="h-8 w-8" />
+                  <p className="mt-3 text-sm font-semibold">QR code unavailable</p>
+                  <p className="mt-1 text-xs leading-5">{upiQrError}</p>
+                </div>
+              ) : (
+                <div className="mx-auto flex h-64 w-64 flex-col items-center justify-center rounded-2xl bg-slate-50 text-slate-500">
+                  <span className="h-9 w-9 animate-spin rounded-full border-4 border-emerald-100 border-t-emerald-600" />
+                  <p className="mt-4 text-sm font-semibold">Preparing payment QR…</p>
+                </div>
+              )}
+              {upiQrCode && <p className="mt-4 text-sm font-semibold text-slate-800">Open any UPI app and scan</p>}
+              <p className="mt-1 text-xs text-slate-500">The QR code is linked to this exact bill amount.</p>
+              {process.env.NEXT_PUBLIC_UPI_ID && <p className="mt-3 text-[11px] font-medium text-slate-400">UPI ID: {process.env.NEXT_PUBLIC_UPI_ID}</p>}
+              <button
+                type="button"
+                disabled={!upiQrCode || submitting || !selectedCustomer || cart.length === 0 || pendingPayable !== null}
+                onClick={() => {
+                  const printWindow = window.open("", "_blank", "width=480,height=640");
+                  void handleSubmit(true, true, printWindow);
+                }}
+                className="mt-5 w-full rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+              >
+                {submitting ? "Submitting bill…" : "Done · Submit & print bill"}
+              </button>
+              {upiQrCode && !selectedCustomer && <p className="mt-2 text-xs font-medium text-amber-700">Select a customer before submitting this bill.</p>}
+              {pendingPayable !== null && <p className="mt-2 text-xs font-medium text-amber-700">Sync the previous sale before submitting another bill.</p>}
+            </div>
+          </section>
+        </div>
+      )}
 
       {quickAddOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">

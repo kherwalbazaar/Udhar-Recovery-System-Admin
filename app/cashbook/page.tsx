@@ -38,6 +38,7 @@ import {
   X,
 } from "lucide-react";
 import AppShell from "@/components/AppShell";
+import { useToast } from "@/components/ToastProvider";
 import { db } from "@/lib/firebase";
 import {
   buildCashbook,
@@ -105,6 +106,7 @@ function MetricCard({ metric }: { metric: Metric }) {
 }
 
 export default function CashBookPage() {
+  const { showToast } = useToast();
   const [data, setData] = useState<CashbookData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -168,6 +170,7 @@ export default function CashBookPage() {
       });
       triggerActionRefresh();
       setModalOpen(false);
+      showToast("success", "Cashbook transaction saved.");
     } catch (e) {
       setFormError(e instanceof Error ? e.message : "Failed to save transaction.");
     } finally {

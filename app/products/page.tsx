@@ -122,7 +122,7 @@ function printProductBarcodeTag(product: ProductWithSales) {
 }
 
 export default function ProductPage() {
-  const { showToast } = useToast();
+  const { showToast, confirmAction } = useToast();
   const [name, setName] = useState("");
   const [barcode, setBarcode] = useState("");
   const [mrp, setMrp] = useState(0);
@@ -699,7 +699,7 @@ export default function ProductPage() {
   };
 
   const handleDeleteList = async (p: ProductWithSales) => {
-    if (!window.confirm(`Delete "${p.name}"?`)) return;
+    if (!await confirmAction({ title: "Delete this product?", message: `“${p.name}” will be removed from the product catalog.`, confirmLabel: "Delete product", cancelLabel: "Keep product", tone: "danger" })) return;
     try {
       await deleteProduct(p.name);
       setProductList((prev) => prev.filter((x) => x.name !== p.name));
@@ -709,6 +709,7 @@ export default function ProductPage() {
         resetForm();
         setShowForm(false);
       }
+      showToast("success", `${p.name} deleted.`);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to delete product.");
     }

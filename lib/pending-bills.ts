@@ -17,8 +17,13 @@ export type PendingBillStatus = "PENDING" | "COMPLETED";
 
 export type PendingBill = {
   id: string;
-  customer: CustomerSummary | null;
+  name: string;
+  mobile: string;
+  address: string;
+  isSaved: boolean;
   items: PendingBillItem[];
+  title?: string;
+  customer: CustomerSummary | null;
   invoiceNo: string | null;
   paymentMode: string;
   cgstAmount: number;
@@ -28,6 +33,13 @@ export type PendingBill = {
   status: PendingBillStatus;
   completedAt?: number;
 };
+
+export const PENDING_BILL_MAX_AGE_MS = 30 * 60 * 1000; // 30 minutes
+
+export function isPendingBillExpired(bill: { updatedAt?: number }): boolean {
+  if (!bill?.updatedAt) return true;
+  return Date.now() - bill.updatedAt > PENDING_BILL_MAX_AGE_MS;
+}
 
 const localKey = (id: string) => `udhar_pending_bill_v1_${id}`;
 
@@ -46,6 +58,35 @@ function stripUndefined<T>(value: T): T {
   return value;
 }
 
+export function normalizePendingBill(raw: Partial<PendingBill> & { id: string }): PendingBill {
+  const customer = raw.customer || null;
+  const isSaved = Boolean(
+    raw.isSaved ??
+      (customer && customer.name && customer.name.trim().toLowerCase() !== "kherwal bazaar")
+  );
+  const name = raw.name || (isSaved ? customer?.name || "" : "");
+  const mobile = raw.mobile || (isSaved ? customer?.phone || "" : "");
+  const address = raw.address || (isSaved ? customer?.address || "" : "");
+  return {
+    id: raw.id,
+    name,
+    mobile,
+    address,
+    isSaved,
+    items: toItems(raw.items),
+    title: raw.title || (isSaved && name ? name : "Bill 1"),
+    customer,
+    invoiceNo: raw.invoiceNo || null,
+    paymentMode: raw.paymentMode || "Cash",
+    cgstAmount: raw.cgstAmount || 0,
+    received: raw.received || 0,
+    receivedTouched: Boolean(raw.receivedTouched),
+    updatedAt: raw.updatedAt || Date.now(),
+    status: raw.status || "PENDING",
+    completedAt: raw.completedAt,
+  };
+}
+
 export function fetchLocalPendingBills(): PendingBill[] {
   if (typeof window === "undefined") return [];
   const bills: PendingBill[] = [];
@@ -53,8 +94,14 @@ export function fetchLocalPendingBills(): PendingBill[] {
     const key = window.localStorage.key(index);
     if (!key?.startsWith("udhar_pending_bill_v1_")) continue;
     try {
-      const bill = JSON.parse(window.localStorage.getItem(key) ?? "null") as PendingBill | null;
-      if (bill?.id && bill.status === "PENDING" && Array.isArray(bill.items)) bills.push(bill);
+      const bill = JSON.parse(window.localStorage.getItem(key) ?? "null") as (Partial<PendingBill> & { id: string }) | null;
+      if (bill?.id) {
+        if (isPendingBillExpired(bill)) {
+          window.localStorage.removeItem(key);
+        } else if (bill.status !== "COMPLETED") {
+          bills.push(normalizePendingBill(bill));
+        }
+      }
     } catch {
       // Ignore a damaged local recovery copy; Firebase remains authoritative.
     }
@@ -108,12 +155,19 @@ export async function fetchPendingBillSnapshot(): Promise<PendingBillSnapshot> {
   const completedIds = Object.entries(completed ?? {})
     .filter(([, marker]) => marker?.status === "COMPLETED")
     .map(([id]) => id);
-  const bills = raw
-    ? Object.entries(raw)
-        .filter(([id, bill]) => bill?.status === "PENDING" && completed?.[id]?.status !== "COMPLETED")
-        .map(([id, bill]) => ({ ...bill, id, items: toItems(bill.items) }))
-        .sort((a, b) => b.updatedAt - a.updatedAt)
-    : [];
+  const bills: PendingBill[] = [];
+  if (raw) {
+    for (const [id, bill] of Object.entries(raw)) {
+      if (!bill || completed?.[id]?.status === "COMPLETED") continue;
+      if (isPendingBillExpired(bill)) {
+        void deletePendingBill(id).catch(() => {});
+        deleteLocalPendingBill(id);
+      } else if (bill.status === "PENDING") {
+        bills.push(normalizePendingBill({ ...bill, id }));
+      }
+    }
+  }
+  bills.sort((a, b) => b.updatedAt - a.updatedAt);
   return { bills, completedIds };
 }
 

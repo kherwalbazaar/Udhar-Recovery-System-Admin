@@ -34,6 +34,7 @@ export function readLocalCustomerDrafts(): LocalCustomerDraft[] {
         typeof (entry as LocalCustomerDraft).id === "string" &&
         (entry as LocalCustomerDraft).id.startsWith(LOCAL_ID_PREFIX) &&
         typeof (entry as LocalCustomerDraft).name === "string" &&
+        (entry as LocalCustomerDraft).name.trim().toLowerCase() !== "kherwal bazaar" &&
         typeof (entry as LocalCustomerDraft).phone === "string"
     );
   } catch {

@@ -23,6 +23,7 @@ import {
   Users,
   Package,
   IndianRupee,
+  Pencil,
 } from "lucide-react";
 import AppShell from "@/components/AppShell";
 import { useToast } from "@/components/ToastProvider";
@@ -51,7 +52,9 @@ import {
   deletePendingBill,
   fetchLocalPendingBills,
   fetchPendingBillSnapshot,
+  isPendingBillExpired,
   markLocalPendingBillCompleted,
+  PENDING_BILL_MAX_AGE_MS,
   saveLocalPendingBill,
   savePendingBill,
   type PendingBill,
@@ -104,7 +107,7 @@ const PAYMENT_MODES: { label: PaymentMode; icon: typeof Banknote }[] = [
 
 const DRAFT_KEY = "udhar_sales_draft_v1";
 const INVOICE_SEQ_KEY = "udhar_sales_invoice_seq_v1";
-const DRAFT_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+const DRAFT_MAX_AGE_MS = PENDING_BILL_MAX_AGE_MS;
 
 type SalesDraft = {
   cart: CartItem[];
@@ -153,7 +156,10 @@ function readDraft(): SalesDraft | null {
     if (!raw) return null;
     const draft = JSON.parse(raw) as SalesDraft;
     if (!Array.isArray(draft.cart) || draft.cart.length === 0) return null;
-    if (!draft.updatedAt || Date.now() - draft.updatedAt > DRAFT_MAX_AGE_MS) return null;
+    if (!draft.updatedAt || Date.now() - draft.updatedAt > DRAFT_MAX_AGE_MS) {
+      localStorage.removeItem(DRAFT_KEY);
+      return null;
+    }
     return {
       cart: draft.cart,
       customerId: draft.customerId ?? null,
@@ -228,6 +234,8 @@ export default function AddSalePage() {
   const [closedBillTabIds, setClosedBillTabIds] = useState<string[]>([]);
   const [activeBillId, setActiveBillId] = useState<string | null>(null);
   const [pendingBillsLoaded, setPendingBillsLoaded] = useState(false);
+  const [isAddingBill, setIsAddingBill] = useState(false);
+  const [editingBillId, setEditingBillId] = useState<string | null>(null);
   const [pendingAction, setPendingAction] = useState(false);
   const suppressPendingSaveRef = useRef(false);
   const activeBillIdRef = useRef<string | null>(null);
@@ -309,6 +317,26 @@ export default function AddSalePage() {
     };
   }, []);
 
+  const resetSession = useCallback(() => {
+    activeBillIdRef.current = null;
+    setActiveBillId(null);
+    setCart([]);
+    setSelectedCustomer(null);
+    setCustomerName("");
+    setCustomerPhone("");
+    setCustomerAddress("");
+    setCustomerSaveError(null);
+    setInvoiceNo(null);
+    setPaymentMode("Cash");
+    setCgstAmount(0);
+    setReceived(0);
+    setReceivedTouched(false);
+    writeDraft(null);
+    setBillTabs([]);
+    setIsAddingBill(false);
+    setEditingBillId(null);
+  }, []);
+
   // Keep a ref copy so async restores never work from stale state.
   useEffect(() => {
     activeBillIdRef.current = activeBillId;
@@ -322,9 +350,18 @@ export default function AddSalePage() {
 
     const applyBill = (bill: PendingBill) => {
       setActiveBillId(bill.id);
-      setCart(bill.items);
-      setSelectedCustomer(bill.customer);
-      setInvoiceNo(bill.invoiceNo);
+      activeBillIdRef.current = bill.id;
+      setCart(bill.items || []);
+      const billCustomer =
+        bill.customer?.name?.trim().toLowerCase() === "kherwal bazaar"
+          ? null
+          : bill.customer || null;
+      setSelectedCustomer(billCustomer);
+      setCustomerName(bill.name || billCustomer?.name || "");
+      setCustomerPhone(bill.mobile || billCustomer?.phone || "");
+      setCustomerAddress(bill.address || billCustomer?.address || "");
+      setCustomerSaveError(null);
+      setInvoiceNo(bill.invoiceNo || null);
       setPaymentMode((PAYMENT_MODES.some((mode) => mode.label === bill.paymentMode)
         ? bill.paymentMode
         : "Cash") as PaymentMode);
@@ -333,34 +370,39 @@ export default function AddSalePage() {
       setReceivedTouched(Boolean(bill.receivedTouched));
     };
     const sorted = () => [...merged.values()].sort((a, b) => b.updatedAt - a.updatedAt);
-    const publish = () => setBillTabs(sorted());
-    const resetSession = () => {
-      setActiveBillId(makeBillId());
-      setCart([]);
-      setSelectedCustomer(null);
-      setInvoiceNo(null);
-      setPaymentMode("Cash");
-      setCgstAmount(0);
-      setReceived(0);
-      setReceivedTouched(false);
+    const publish = () => {
+      const all = sorted();
+      let idx = 1;
+      for (const b of all) {
+        if (!b.title) {
+          b.title = b.isSaved && b.name ? b.name : `Bill ${idx}`;
+        }
+        idx++;
+      }
+      setBillTabs(all);
     };
 
-    for (const localBill of fetchLocalPendingBills()) merged.set(localBill.id, localBill);
-    if (merged.size) {
-      if (!activeBillIdRef.current) applyBill(sorted()[0]);
-      publish();
-    } else if (!activeBillIdRef.current) {
-      const draft = readDraft();
-      if (draft) {
-        setActiveBillId(makeBillId());
-        setCart(draft.cart);
-        setPaymentMode(draft.paymentMode);
-        setInvoiceNo(draft.invoiceNo ?? makeInvoiceNo());
-        if (draft.customerId) setRestoredCustomerId(draft.customerId);
-        showToast("info", "Restored the bill you were working on.");
-      } else {
-        setActiveBillId(makeBillId());
+    for (const localBill of fetchLocalPendingBills()) {
+      if (!isPendingBillExpired(localBill)) {
+        if (localBill.customer?.name?.trim().toLowerCase() === "kherwal bazaar") {
+          localBill.customer = null;
+          localBill.name = "";
+          localBill.isSaved = false;
+          saveLocalPendingBill(localBill);
+        }
+        if (localBill.isSaved && localBill.name) {
+          merged.set(localBill.id, localBill);
+        }
       }
+    }
+    const savedLocal = sorted().filter((b) => b.isSaved && b.name);
+    if (savedLocal.length) {
+      setBillTabs(savedLocal);
+      if (!activeBillIdRef.current) applyBill(savedLocal[0]);
+    } else {
+      setBillTabs([]);
+      setActiveBillId(null);
+      activeBillIdRef.current = null;
     }
 
     fetchPendingBillSnapshot()
@@ -372,25 +414,35 @@ export default function AddSalePage() {
           deleteLocalPendingBill(id);
         }
         for (const bill of bills) {
-          const local = merged.get(bill.id);
-          if (local && local.updatedAt > bill.updatedAt) {
-            // Unsaved local edits win, so push them back to the shared copy.
-            void savePendingBill(local).catch(() => {});
-          } else {
-            merged.set(bill.id, bill);
+          if (isPendingBillExpired(bill)) continue;
+          if (bill.customer?.name?.trim().toLowerCase() === "kherwal bazaar") {
+            bill.customer = null;
+            bill.name = "";
+            bill.isSaved = false;
+          }
+          if (bill.isSaved && bill.name) {
+            const local = merged.get(bill.id);
+            if (local && local.updatedAt > bill.updatedAt) {
+              void savePendingBill(local).catch(() => {});
+            } else {
+              merged.set(bill.id, bill);
+            }
           }
         }
-        const all = sorted();
-        publish();
-        if (sessionTouchedRef.current) return;
-        const currentId = activeBillIdRef.current;
-        const currentBill = currentId ? merged.get(currentId) : undefined;
-        if (currentBill) {
-          applyBill(currentBill);
-        } else if (all[0] && (!currentId || finished.has(currentId))) {
-          applyBill(all[0]);
-        } else if (currentId && finished.has(currentId)) {
-          resetSession();
+        const savedAll = sorted().filter((b) => b.isSaved && b.name);
+        if (savedAll.length === 0) {
+          setBillTabs([]);
+          setActiveBillId(null);
+          activeBillIdRef.current = null;
+        } else {
+          setBillTabs(savedAll);
+          if (activeBillIdRef.current) {
+            const currentBill = savedAll.find((b) => b.id === activeBillIdRef.current);
+            if (currentBill) applyBill(currentBill);
+            else applyBill(savedAll[0]);
+          } else {
+            applyBill(savedAll[0]);
+          }
         }
       })
       .catch((loadError) => {
@@ -404,13 +456,77 @@ export default function AddSalePage() {
     return () => { active = false; };
   }, [showToast]);
 
+  // Reset all pending bills and active drafts after 30 minutes of inactivity
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      const now = Date.now();
+      const currentActiveId = activeBillIdRef.current;
+
+      // 1. Check if the active draft has exceeded 30 minutes
+      const rawDraft = typeof window !== "undefined" ? localStorage.getItem(DRAFT_KEY) : null;
+      if (rawDraft) {
+        try {
+          const parsed = JSON.parse(rawDraft) as { updatedAt?: number };
+          if (parsed?.updatedAt && now - parsed.updatedAt > DRAFT_MAX_AGE_MS) {
+            localStorage.removeItem(DRAFT_KEY);
+            if (currentActiveId) {
+              void deletePendingBill(currentActiveId).catch(() => {});
+              deleteLocalPendingBill(currentActiveId);
+            }
+            resetSession();
+            showToast("info", "Bill was reset after 30 minutes of inactivity.");
+          }
+        } catch {}
+      }
+
+      // 2. Remove any expired pending bills from state, device storage, and Firebase
+      setBillTabs((current) => {
+        let changed = false;
+        const valid: PendingBill[] = [];
+        for (const bill of current) {
+          if (isPendingBillExpired(bill)) {
+            changed = true;
+            void deletePendingBill(bill.id).catch(() => {});
+            deleteLocalPendingBill(bill.id);
+            if (bill.id === currentActiveId) {
+              resetSession();
+              showToast("info", "Pending bill was reset after 30 minutes.");
+            }
+          } else {
+            valid.push(bill);
+          }
+        }
+        return changed ? valid : current;
+      });
+    }, 10000);
+
+    return () => window.clearInterval(timer);
+  }, [resetSession, showToast]);
+
   // Persist the active tab after edits. The device copy is written immediately so
   // a refresh or crash never loses the bill; Firebase follows once the saved
   // sessions are merged (never overwriting newer data from another device).
   useEffect(() => {
-    if (!activeBillId || suppressPendingSaveRef.current || (!cart.length && !selectedCustomer)) return;
+    if (!activeBillId || suppressPendingSaveRef.current) return;
+    const currentTab = billTabs.find((b) => b.id === activeBillId);
+    const isSaved = Boolean(currentTab?.isSaved);
+    const name = isSaved
+      ? (currentTab?.name || selectedCustomer?.name || customerName.trim())
+      : customerName.trim();
+    const mobile = isSaved
+      ? (currentTab?.mobile || selectedCustomer?.phone || customerPhone.trim())
+      : customerPhone.trim();
+    const address = isSaved
+      ? (currentTab?.address || selectedCustomer?.address || customerAddress.trim())
+      : customerAddress.trim();
+    const currentTitle = isSaved && name ? name : (currentTab?.title || "Bill 1");
     const bill: PendingBill = {
       id: activeBillId,
+      name,
+      mobile,
+      address,
+      isSaved,
+      title: currentTitle,
       customer: selectedCustomer,
       items: cart,
       invoiceNo,
@@ -425,7 +541,7 @@ export default function AddSalePage() {
     setBillTabs((current) =>
       current.some((entry) => entry.id === bill.id)
         ? current.map((entry) => (entry.id === bill.id ? bill : entry))
-        : [bill, ...current]
+        : [...current, bill]
     );
     if (!pendingBillsLoaded) return;
     const timer = window.setTimeout(() => {
@@ -434,13 +550,15 @@ export default function AddSalePage() {
       });
     }, 450);
     return () => window.clearTimeout(timer);
-  }, [pendingBillsLoaded, activeBillId, cart, selectedCustomer, invoiceNo, paymentMode, cgstAmount, received, receivedTouched, showToast]);
+  }, [pendingBillsLoaded, activeBillId, cart, selectedCustomer, customerName, customerPhone, customerAddress, invoiceNo, paymentMode, cgstAmount, received, receivedTouched, showToast]);
 
   // Attach the customer of a restored bill once the customer list arrives
   useEffect(() => {
     if (!customersLoaded || !restoredCustomerId || selectedCustomer) return;
     const match = customers.find((customer) => customer.id === restoredCustomerId);
-    if (match) setSelectedCustomer(match);
+    if (match && match.name?.trim().toLowerCase() !== "kherwal bazaar") {
+      setSelectedCustomer(match);
+    }
     setRestoredCustomerId(null);
   }, [customers, customersLoaded, restoredCustomerId, selectedCustomer]);
 
@@ -534,9 +652,9 @@ export default function AddSalePage() {
   const addToCart = (product: Product) => {
     sessionTouchedRef.current = true;
     if (!activeBillIdRef.current) {
-      const id = makeBillId();
-      activeBillIdRef.current = id;
-      setActiveBillId(id);
+      showToast("warning", "Please click '+ Add Bill' to start a bill first.");
+      handleStartAddBill();
+      return;
     }
     if (!invoiceNo) setInvoiceNo(makeInvoiceNo());
     const price = priceInputs[product.name] ?? product.sale;
@@ -585,16 +703,118 @@ export default function AddSalePage() {
     requestAnimationFrame(() => scanInputRef.current?.focus());
   };
 
-  const selectCustomer = (customer: CustomerSummary) => {
-    sessionTouchedRef.current = true;
-    setSelectedCustomer(customer);
+  const handleStartAddBill = () => {
+    setEditingBillId(null);
     setCustomerName("");
-    setActiveCustomerSuggestion(-1);
     setCustomerPhone("");
     setCustomerAddress("");
     setCustomerSaveError(null);
-    setCustomerFormOpen(false);
+    setIsAddingBill(true);
+  };
+
+  const handleCancelAddBill = () => {
+    setIsAddingBill(false);
+    setEditingBillId(null);
+    setCustomerName("");
+    setCustomerPhone("");
+    setCustomerAddress("");
+    setCustomerSaveError(null);
+  };
+
+  const handleEditCustomer = (billId: string) => {
+    const target = billTabs.find((b) => b.id === billId);
+    if (!target) return;
+    setEditingBillId(billId);
+    setCustomerName(target.name || target.customer?.name || "");
+    setCustomerPhone(target.mobile || target.customer?.phone || "");
+    setCustomerAddress(target.address || target.customer?.address || "");
+    setCustomerSaveError(null);
+    setIsAddingBill(true);
+  };
+
+  const selectCustomer = (customer: CustomerSummary) => {
+    sessionTouchedRef.current = true;
+    setCustomerName(customer.name);
+    setCustomerPhone(customer.phone);
+    setCustomerAddress(customer.address || "");
+    setActiveCustomerSuggestion(-1);
+    setCustomerSaveError(null);
     setProductTab("scan");
+
+    if (editingBillId) {
+      const targetBill = billTabs.find((b) => b.id === editingBillId);
+      const billNumMatch = targetBill?.title?.match(/Bill\s*(\d+)/i);
+      const billNum = billNumMatch ? billNumMatch[1] : "1";
+      const title = `Bill ${billNum} (${customer.name})`;
+
+      setBillTabs((prev) =>
+        prev.map((b) =>
+          b.id === editingBillId
+            ? {
+                ...b,
+                name: customer.name,
+                mobile: customer.phone,
+                address: customer.address || "",
+                customer,
+                title,
+                isSaved: true,
+                updatedAt: Date.now(),
+              }
+            : b
+        )
+      );
+      if (activeBillIdRef.current === editingBillId) {
+        setSelectedCustomer(customer);
+      }
+      setIsAddingBill(false);
+      setEditingBillId(null);
+      showToast("success", "Customer details updated.");
+      requestAnimationFrame(() => scanInputRef.current?.focus());
+      return;
+    }
+
+    // Creating a new bill with this customer
+    const nextNum = billTabs.reduce((max, b) => {
+      const match = b.title?.match(/Bill\s*(\d+)/i);
+      return match ? Math.max(max, parseInt(match[1], 10)) : max;
+    }, 0) + 1;
+
+    const newId = makeBillId();
+    const title = `Bill ${nextNum} (${customer.name})`;
+    const newBill: PendingBill = {
+      id: newId,
+      name: customer.name,
+      mobile: customer.phone,
+      address: customer.address || "",
+      isSaved: true,
+      title,
+      customer,
+      items: [],
+      invoiceNo: null,
+      paymentMode: "Cash",
+      cgstAmount: 0,
+      received: 0,
+      receivedTouched: false,
+      updatedAt: Date.now(),
+      status: "PENDING",
+    };
+
+    saveLocalPendingBill(newBill);
+    void savePendingBill(newBill).catch(() => {});
+
+    setBillTabs((prev) => [...prev, newBill]);
+    activeBillIdRef.current = newId;
+    setActiveBillId(newId);
+    setCart([]);
+    setSelectedCustomer(customer);
+    setInvoiceNo(null);
+    setPaymentMode("Cash");
+    setCgstAmount(0);
+    setReceived(0);
+    setReceivedTouched(false);
+    setIsAddingBill(false);
+    setEditingBillId(null);
+    showToast("success", `Created ${title}`);
     requestAnimationFrame(() => scanInputRef.current?.focus());
   };
 
@@ -896,18 +1116,47 @@ export default function AddSalePage() {
 
       const completedBillId = activeBillIdRef.current;
       if (completedBillId) {
-        // The sale record is written; hide the finished bill everywhere. The local
-        // copy is flagged first so even an immediate reload cannot reopen it.
         markLocalPendingBillCompleted(completedBillId);
-        suppressPendingSaveRef.current = true;
-        setBillTabs((tabs) => tabs.filter((bill) => bill.id !== completedBillId));
-        setClosedBillTabIds((closed) => closed.filter((id) => id !== completedBillId));
-        const nextId = makeBillId();
-        activeBillIdRef.current = nextId;
-        setActiveBillId(nextId);
-        void completePendingBill(completedBillId).catch((cleanupError) => {
-          showToast("warning", `Sale is complete; the pending entry could not be closed automatically: ${cleanupError instanceof Error ? cleanupError.message : "Database error"}`);
-        });
+        deleteLocalPendingBill(completedBillId);
+        void completePendingBill(completedBillId).catch(() => {});
+        void deletePendingBill(completedBillId).catch(() => {});
+
+        const remaining = billTabs.filter((b) => b.id !== completedBillId);
+        if (remaining.length > 0) {
+          setBillTabs(remaining);
+          const nextBill = remaining[0];
+          activeBillIdRef.current = nextBill.id;
+          setActiveBillId(nextBill.id);
+          setCart(nextBill.items || []);
+          setSelectedCustomer(nextBill.customer || null);
+          setCustomerName(nextBill.name || nextBill.customer?.name || "");
+          setCustomerPhone(nextBill.mobile || nextBill.customer?.phone || "");
+          setCustomerAddress(nextBill.address || nextBill.customer?.address || "");
+          setCustomerSaveError(null);
+          setInvoiceNo(nextBill.invoiceNo || null);
+          setPaymentMode((PAYMENT_MODES.some((m) => m.label === nextBill.paymentMode) ? nextBill.paymentMode : "Cash") as PaymentMode);
+          setCgstAmount(nextBill.cgstAmount || 0);
+          setReceived(nextBill.received || 0);
+          setReceivedTouched(Boolean(nextBill.receivedTouched));
+        } else {
+          activeBillIdRef.current = null;
+          setActiveBillId(null);
+          setCart([]);
+          setSelectedCustomer(null);
+          setCustomerName("");
+          setCustomerPhone("");
+          setCustomerAddress("");
+          setCustomerSaveError(null);
+          setInvoiceNo(null);
+          setPaymentMode("Cash");
+          setCgstAmount(0);
+          setReceived(0);
+          setReceivedTouched(false);
+          setBillTabs([]);
+          setIsAddingBill(false);
+          setEditingBillId(null);
+          writeDraft(null);
+        }
       }
 
       if (autoSendWhatsapp && selectedCustomer.phone.trim()) {
@@ -941,20 +1190,13 @@ export default function AddSalePage() {
         }
       }
 
-      setCart([]);
-      setCgstAmount(0);
-      setInvoiceNo(null);
-      writeDraft(null);
-      setSelectedCustomer(null);
       setCustomerName("");
       setCustomerPhone("");
       setCustomerAddress("");
       setCustomerSaveError(null);
       setCustomerFormOpen(false);
       setAutoSendWhatsapp(false);
-      setReceivedTouched(false);
       setPendingPayable(finalPayable);
-      if (completedBillId) window.setTimeout(() => { suppressPendingSaveRef.current = false; }, 0);
 
       try {
         await savePayableAmount(finalPayable);
@@ -1095,10 +1337,27 @@ export default function AddSalePage() {
     }
   };
 
-  const makeCurrentPendingBill = (id: string | null = activeBillId): PendingBill | null => {
+  const makeCurrentPendingBill = (id: string | null = activeBillIdRef.current): PendingBill | null => {
     if (!id) return null;
+    const currentTab = billTabs.find((b) => b.id === id);
+    const isSaved = Boolean(currentTab?.isSaved);
+    const name = isSaved
+      ? (currentTab?.name || selectedCustomer?.name || customerName.trim())
+      : customerName.trim();
+    const mobile = isSaved
+      ? (currentTab?.mobile || selectedCustomer?.phone || customerPhone.trim())
+      : customerPhone.trim();
+    const address = isSaved
+      ? (currentTab?.address || selectedCustomer?.address || customerAddress.trim())
+      : customerAddress.trim();
+    const currentTitle = isSaved && name ? name : (currentTab?.title || "Bill 1");
     return {
       id,
+      name,
+      mobile,
+      address,
+      isSaved,
+      title: currentTitle,
       customer: selectedCustomer,
       items: cart,
       invoiceNo,
@@ -1111,102 +1370,95 @@ export default function AddSalePage() {
     };
   };
 
-  const billLabel = (bill: PendingBill) => {
-    const name = bill.customer?.name?.trim();
-    if (name) return name;
-    const tail = (bill.invoiceNo ?? "").slice(-3);
-    return tail ? `Bill ${tail}` : "New bill";
-  };
-
   const storeCurrentBill = async () => {
-    const id = activeBillIdRef.current ?? makeBillId();
-    if (!activeBillIdRef.current) {
-      activeBillIdRef.current = id;
-      setActiveBillId(id);
-    }
+    const id = activeBillIdRef.current;
+    if (!id) return;
     const current = makeCurrentPendingBill(id);
-    if (!current || (!current.items.length && !current.customer)) return;
+    if (!current) return;
     saveLocalPendingBill(current);
-    await savePendingBill(current);
-    setBillTabs((tabs) => [current, ...tabs.filter((bill) => bill.id !== current.id)]);
+    void savePendingBill(current).catch(() => {});
+    setBillTabs((tabs) => tabs.map((b) => (b.id === id ? current : b)));
   };
 
-  const openBillTab = async (bill: PendingBill) => {
-    try {
-      await storeCurrentBill();
-      sessionTouchedRef.current = true;
-      activeBillIdRef.current = bill.id;
-      suppressPendingSaveRef.current = true;
-      setActiveBillId(bill.id);
-      setClosedBillTabIds((closed) => closed.filter((id) => id !== bill.id));
-      setCart(bill.items);
-      setSelectedCustomer(bill.customer);
-      setInvoiceNo(bill.invoiceNo);
-      setPaymentMode((PAYMENT_MODES.some((mode) => mode.label === bill.paymentMode)
-        ? bill.paymentMode
-        : "Cash") as PaymentMode);
-      setCgstAmount(bill.cgstAmount ?? 0);
-      setReceived(bill.received ?? 0);
-      setReceivedTouched(Boolean(bill.receivedTouched));
-      setCustomerFormOpen(false);
-      setError(null);
-      window.setTimeout(() => { suppressPendingSaveRef.current = false; }, 0);
-    } catch (openError) {
-      showToast("error", `Could not save the current bill before switching: ${openError instanceof Error ? openError.message : "Database error"}`);
-    }
+  const switchToBillTab = async (targetId: string) => {
+    if (targetId === activeBillIdRef.current) return;
+    await storeCurrentBill();
+    const target = billTabs.find((b) => b.id === targetId);
+    if (!target) return;
+
+    setIsAddingBill(false);
+    setEditingBillId(null);
+    activeBillIdRef.current = target.id;
+    setActiveBillId(target.id);
+    setCart(target.items || []);
+    const targetCustomer =
+      target.customer?.name?.trim().toLowerCase() === "kherwal bazaar"
+        ? null
+        : target.customer || null;
+    setSelectedCustomer(targetCustomer);
+    setCustomerName(target.name || targetCustomer?.name || "");
+    setCustomerPhone(target.mobile || targetCustomer?.phone || "");
+    setCustomerAddress(target.address || targetCustomer?.address || "");
+    setCustomerSaveError(null);
+    setInvoiceNo(target.invoiceNo || null);
+    setPaymentMode((PAYMENT_MODES.some((m) => m.label === target.paymentMode) ? target.paymentMode : "Cash") as PaymentMode);
+    setCgstAmount(target.cgstAmount || 0);
+    setReceived(target.received || 0);
+    setReceivedTouched(Boolean(target.receivedTouched));
   };
 
-  const startNewBillTab = async () => {
-    try {
-      await storeCurrentBill();
-      const id = makeBillId();
-      sessionTouchedRef.current = true;
-      activeBillIdRef.current = id;
-      suppressPendingSaveRef.current = true;
-      setActiveBillId(id);
+  const handleAddNewBillTab = () => {
+    handleStartAddBill();
+  };
+
+  const handleRemoveBillTab = async (billId: string) => {
+    deleteLocalPendingBill(billId);
+    void deletePendingBill(billId).catch(() => {});
+
+    const remaining = billTabs.filter((b) => b.id !== billId);
+    setBillTabs(remaining);
+
+    if (remaining.length === 0) {
+      activeBillIdRef.current = null;
+      setActiveBillId(null);
       setCart([]);
       setSelectedCustomer(null);
+      setCustomerName("");
+      setCustomerPhone("");
+      setCustomerAddress("");
+      setCustomerSaveError(null);
       setInvoiceNo(null);
       setPaymentMode("Cash");
       setCgstAmount(0);
       setReceived(0);
       setReceivedTouched(false);
-      setCustomerName("");
-      setCustomerPhone("");
-      setCustomerAddress("");
-      setCustomerFormOpen(true);
-      setError(null);
-      window.setTimeout(() => { suppressPendingSaveRef.current = false; }, 0);
-    } catch (saveError) {
-      showToast("error", `Could not save the current bill: ${saveError instanceof Error ? saveError.message : "Database error"}`);
+      writeDraft(null);
+      setIsAddingBill(false);
+      setEditingBillId(null);
+      return;
     }
-  };
 
-  const closeBillTab = async (bill: PendingBill) => {
-    if (!await confirmAction({ title: "Close this bill tab?", message: "This bill is saved in your bill tabs. You can reopen it later.", confirmLabel: "Close tab", cancelLabel: "Keep open" })) return;
-    try {
-      if (bill.id === activeBillId) await storeCurrentBill();
-      setClosedBillTabIds((closed) => closed.includes(bill.id) ? closed : [...closed, bill.id]);
-      const next = billTabs.find((entry) => entry.id !== bill.id && !closedBillTabIds.includes(entry.id));
-      if (next) await openBillTab(next);
-      else if (bill.id === activeBillId) {
-        const id = makeBillId();
-        sessionTouchedRef.current = true;
-        activeBillIdRef.current = id;
-        suppressPendingSaveRef.current = true;
-        setActiveBillId(id);
-        setCart([]);
-        setSelectedCustomer(null);
-        setInvoiceNo(null);
-        setCgstAmount(0);
-        setReceived(0);
-        setReceivedTouched(false);
-        setCustomerFormOpen(false);
-        window.setTimeout(() => { suppressPendingSaveRef.current = false; }, 0);
-      }
-      showToast("success", "Bill tab closed.");
-    } catch (closeError) {
-      showToast("error", `Could not close the tab safely: ${closeError instanceof Error ? closeError.message : "Database error"}`);
+    if (billId === activeBillIdRef.current) {
+      const nextBill = remaining[0];
+      activeBillIdRef.current = nextBill.id;
+      setActiveBillId(nextBill.id);
+      setCart(nextBill.items || []);
+      const nextCustomer =
+        nextBill.customer?.name?.trim().toLowerCase() === "kherwal bazaar"
+          ? null
+          : nextBill.customer || null;
+      setSelectedCustomer(nextCustomer);
+      setCustomerName(nextBill.name || nextCustomer?.name || "");
+      setCustomerPhone(nextBill.mobile || nextCustomer?.phone || "");
+      setCustomerAddress(nextBill.address || nextCustomer?.address || "");
+      setCustomerSaveError(null);
+      setInvoiceNo(nextBill.invoiceNo || null);
+      setPaymentMode((PAYMENT_MODES.some((m) => m.label === nextBill.paymentMode) ? nextBill.paymentMode : "Cash") as PaymentMode);
+      setCgstAmount(nextBill.cgstAmount || 0);
+      setReceived(nextBill.received || 0);
+      setReceivedTouched(Boolean(nextBill.receivedTouched));
+      setIsAddingBill(false);
+      setEditingBillId(null);
     }
   };
 
@@ -1222,8 +1474,25 @@ export default function AddSalePage() {
         activeBillIdRef.current = id;
         setActiveBillId(id);
       }
+      const currentTab = billTabs.find((b) => b.id === id);
+      const isSaved = Boolean(currentTab?.isSaved);
+      const name = isSaved
+        ? (currentTab?.name || selectedCustomer?.name || customerName.trim())
+        : customerName.trim();
+      const mobile = isSaved
+        ? (currentTab?.mobile || selectedCustomer?.phone || customerPhone.trim())
+        : customerPhone.trim();
+      const address = isSaved
+        ? (currentTab?.address || selectedCustomer?.address || customerAddress.trim())
+        : customerAddress.trim();
+      const currentTitle = isSaved && name ? name : (currentTab?.title || "Bill 1");
       const bill: PendingBill = {
         id,
+        name,
+        mobile,
+        address,
+        isSaved,
+        title: currentTitle,
         customer: selectedCustomer,
         items: cart,
         invoiceNo,
@@ -1339,88 +1608,103 @@ export default function AddSalePage() {
         </div>
       </div>
 
-      <section aria-label="Customer bill tabs" className="flex items-end gap-2 rounded-lg border border-slate-200 bg-slate-100 p-2">
-        <div className="flex min-w-0 flex-1 items-end gap-1 overflow-x-auto" role="tablist" aria-label="Open bills">
-          {!activeBillId && pendingBillsLoaded && billTabs.length === 0 && <span className="px-2 text-xs text-slate-500">Start a bill to begin.</span>}
-          {billTabs.filter((bill) => !closedBillTabIds.includes(bill.id)).map((bill) => (
-            <div key={bill.id} className={`relative inline-flex h-10 shrink-0 items-center gap-1 rounded-t-lg rounded-b-none border border-b-0 px-2 transition-all duration-500 ease-in-out ${activeBillId === bill.id ? "z-10 -translate-y-0.5 border-emerald-600 bg-emerald-500 text-white shadow-[0_-2px_8px_rgba(16,185,129,0.28)] ring-1 ring-emerald-300" : "translate-y-0 border-yellow-300 bg-yellow-100 text-slate-800 hover:bg-yellow-200"}`}>
-              <button type="button" role="tab" aria-selected={activeBillId === bill.id} onClick={() => void openBillTab(bill)} className={`flex items-center gap-1.5 text-xs font-semibold ${activeBillId === bill.id ? "text-white" : "text-slate-700"}`}>
-                <span className="max-w-32 truncate">{billLabel(bill)}</span>
-                <span className={`rounded px-1 text-[9px] font-bold ${activeBillId === bill.id ? "bg-emerald-700 text-emerald-50" : "bg-yellow-200 text-yellow-900"}`}>PENDING</span>
-              </button>
-              <button type="button" onClick={() => void closeBillTab(bill)} aria-label={`Close ${billLabel(bill)} tab`} className={`rounded p-0.5 ${activeBillId === bill.id ? "text-emerald-50 hover:bg-emerald-700 hover:text-white" : "text-slate-500 hover:bg-red-100 hover:text-red-600"}`}><X className="h-3.5 w-3.5" /></button>
-            </div>
-          ))}
-          {activeBillId && !billTabs.some((bill) => bill.id === activeBillId) && <span role="tab" aria-selected="true" className="relative z-10 inline-flex h-10 shrink-0 -translate-y-0.5 items-center rounded-t-lg rounded-b-none border border-emerald-600 border-b-0 bg-emerald-500 px-3 text-xs font-semibold text-white shadow-[0_-2px_8px_rgba(16,185,129,0.28)] ring-1 ring-emerald-300 transition-all duration-500 ease-in-out">New customer bill</span>}
-        </div>
-        <button
-          type="button"
-          onClick={() => void startNewBillTab()}
-          title="Start a new customer bill"
-          aria-label="Add new customer bill"
-          className="inline-flex h-9 shrink-0 items-center gap-1 rounded-md bg-blue-600 px-3 text-xs font-bold text-white hover:bg-blue-700"
-        >
-          <Plus className="h-4 w-4" /> New customer bill
-        </button>
-      </section>
-
       <div suppressHydrationWarning className="grid grid-cols-12 gap-4">
         {/* LEFT SECTION: FORM AND PRODUCT SELECTION */}
         <div className="col-span-12 space-y-2">
-          {/* 1. Customer Section - only while adding a customer or when one is selected */}
-          {(customerFormOpen || selectedCustomer) && (
+          {/* Customer Section */}
           <div suppressHydrationWarning className="bg-white rounded-none p-4 border border-slate-200">
-            <h3 suppressHydrationWarning className="text-xs font-bold text-slate-800 mb-2">1. Customer</h3>
+            <div
+              className={`flex flex-wrap items-center gap-2 ${
+                isAddingBill ? "border-b border-slate-100 pb-2 mb-3" : ""
+              }`}
+            >
+              {/* Bill Tabs */}
+              <div className="flex items-center gap-1.5 overflow-x-auto" role="tablist" aria-label="Customer Bills">
+                {billTabs.map((bill, index) => {
+                  const isActive = bill.id === activeBillId;
+                  const label = bill.name ? `Bill ${index + 1} (${bill.name})` : bill.title || `Bill ${index + 1}`;
+                  return (
+                    <div
+                      key={bill.id}
+                      className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold transition ${
+                        isActive
+                          ? "border-emerald-600 bg-emerald-600 text-white shadow-sm"
+                          : "border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100"
+                      }`}
+                    >
+                      <button
+                        type="button"
+                        role="tab"
+                        aria-selected={isActive}
+                        onClick={() => void switchToBillTab(bill.id)}
+                        className="flex items-center gap-1.5 text-left outline-none"
+                      >
+                        <span className="max-w-36 truncate">{label}</span>
+                        {bill.items && bill.items.length > 0 && (
+                          <span
+                            className={`rounded-full px-1.5 py-0.2 text-[9px] font-bold ${
+                              isActive ? "bg-emerald-700 text-white" : "bg-slate-200 text-slate-700"
+                            }`}
+                          >
+                            {bill.items.length}
+                          </span>
+                        )}
+                      </button>
 
-            {selectedCustomer ? (
-              <div className="flex items-center justify-between bg-emerald-50 border border-emerald-200 rounded-none px-3 py-2">
-                <div className="flex min-w-0 items-center space-x-2">
-                  <span className="w-7 h-7 rounded-full bg-emerald-500 text-white text-xs flex items-center justify-center font-medium">
-                    {selectedCustomer.name.charAt(0).toUpperCase()}
-                  </span>
-                  <div className="min-w-0">
-                    <p className="text-xs font-medium text-slate-800">
-                      {selectedCustomer.name}
-                    </p>
-                    <p className="text-[10px] text-slate-400">
-                      {selectedCustomer.phone} · {selectedCustomer.address || "No address"}
-                    </p>
-                    {Number(selectedCustomer.totalAmount) > 0 ? (
-                      <p className="text-[10px] font-semibold text-red-600">
-                        Khata due ₹{fmt(Number(selectedCustomer.totalAmount))}
-                      </p>
-                    ) : (
-                      <p className="text-[10px] font-semibold text-emerald-600">
-                        No pending dues
-                      </p>
-                    )}
-                  </div>
-                </div>
+                      {isActive && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleEditCustomer(bill.id);
+                          }}
+                          title={`Edit customer details for ${label}`}
+                          aria-label={`Edit ${label}`}
+                          className="rounded p-0.5 text-emerald-100 hover:bg-emerald-700 hover:text-white transition"
+                        >
+                          <Pencil className="h-3 w-3" />
+                        </button>
+                      )}
+
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void handleRemoveBillTab(bill.id);
+                        }}
+                        aria-label={`Close ${label}`}
+                        className={`rounded p-0.5 transition ${
+                          isActive
+                            ? "text-emerald-100 hover:bg-emerald-700 hover:text-white"
+                            : "text-slate-400 hover:bg-rose-50 hover:text-rose-600"
+                        }`}
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </div>
+                  );
+                })}
+
                 <button
                   type="button"
-                  onClick={() => {
-                    setSelectedCustomer(null);
-                    setCustomerFormOpen(false);
-                    setCustomerName("");
-                    setCustomerPhone("");
-                    setCustomerAddress("");
-                    setCustomerSaveError(null);
-                  }}
-                  className="text-slate-400 hover:text-red-500"
-                  aria-label="Clear customer"
+                  onClick={handleStartAddBill}
+                  title="Create new bill"
+                  className="inline-flex items-center gap-1 rounded-lg border border-dashed border-blue-500 bg-blue-50 px-3 py-1.5 text-xs font-bold text-blue-700 transition hover:bg-blue-100 active:scale-95"
                 >
-                  <X className="w-4 h-4" />
+                  <Plus className="h-3.5 w-3.5" />
+                  <span>+ Add Bill</span>
                 </button>
               </div>
-            ) : customerFormOpen ? (
+            </div>
+
+            {isAddingBill && (
               <div className="grid grid-cols-1 gap-3 md:grid-cols-12 md:items-end">
                 <div className="relative md:col-span-3">
                   <input
                     id="sales-customer-name"
                     type="text"
                     autoComplete="off"
-                    autoFocus
-                    aria-label="Input Name"
+                    aria-label="Name"
                     value={customerName}
                     role="combobox"
                     aria-autocomplete="list"
@@ -1454,7 +1738,9 @@ export default function AddSalePage() {
                           role="option"
                           aria-selected={activeCustomerSuggestion === index}
                           onClick={() => selectCustomer(customer)}
-                          className={`flex w-full items-center justify-between border-b border-slate-100 px-3 py-2 text-left hover:bg-blue-100 ${activeCustomerSuggestion === index ? "bg-blue-200 hover:bg-blue-200" : ""}`}
+                          className={`flex w-full items-center justify-between border-b border-slate-100 px-3 py-2 text-left hover:bg-blue-100 ${
+                            activeCustomerSuggestion === index ? "bg-blue-200 hover:bg-blue-200" : ""
+                          }`}
                         >
                           <span className="text-xs font-medium text-slate-800">
                             {customer.name}
@@ -1510,13 +1796,7 @@ export default function AddSalePage() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => {
-                      setCustomerFormOpen(false);
-                      setCustomerName("");
-                      setCustomerPhone("");
-                      setCustomerAddress("");
-                      setCustomerSaveError(null);
-                    }}
+                    onClick={handleCancelAddBill}
                     className="h-[34px] border border-slate-300 bg-slate-100 px-3 text-xs font-semibold text-slate-600 hover:bg-slate-200"
                   >
                     Cancel
@@ -1529,19 +1809,12 @@ export default function AddSalePage() {
                   </p>
                 )}
               </div>
-            ) : null}
+            )}
           </div>
-          )}
-          {cart.length > 0 && !selectedCustomer && !customerFormOpen && (
-            <p role="status" className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800">
-              Select a customer before recording this sale.
-            </p>
-          )}
 
-          {/* 2. Product Details for Sales */}
+          {/* Product Details for Sales */}
           <div suppressHydrationWarning className="bg-white rounded-xl p-4 border border-slate-200">
             <div className="mb-3 flex flex-wrap items-center gap-3">
-              <h3 suppressHydrationWarning className="flex-none text-xs font-bold text-slate-800">2. Product Details for Sales</h3>
               <div className="order-3 flex w-full flex-1 items-center justify-center sm:order-none sm:w-auto" aria-live="polite">
                 <div className="flex flex-none items-center gap-2">
                   {selectedCustomer && (

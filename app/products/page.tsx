@@ -168,7 +168,6 @@ export default function ProductPage() {
   const [savingNewRow, setSavingNewRow] = useState(false);
   const [editingCell, setEditingCell] = useState<{ name: string; field: EditableColumn } | null>(null);
   const [cellDraft, setCellDraft] = useState("");
-  const [savingCell, setSavingCell] = useState<string | null>(null);
   const [cellError, setCellError] = useState<{ key: string; message: string } | null>(null);
   const skipCellSaveRef = useRef(false);
   const [categories, setCategories] = useState(DEFAULT_CATEGORIES);
@@ -254,20 +253,6 @@ export default function ProductPage() {
       .catch((e: Error) => setListError(e.message))
       .finally(() => setListLoading(false));
   }, []);
-
-  const refreshList = () => {
-    setListLoading(true);
-    fetchCatalogProducts()
-      .then((data) => {
-        setProductList(data);
-        setListError(null);
-      })
-      .catch((e: Error) => setListError(e.message))
-      .finally(() => setListLoading(false));
-    fetchRecentProducts()
-      .then(setRecent)
-      .catch(() => {});
-  };
 
   const handleExport = () => {
     const headers = ["Product", "Purchase", "Barcode", "MRP", "Sale", "Size", "Category", "Stock"];
@@ -458,7 +443,26 @@ export default function ProductPage() {
       showToast("success", `${productName} added successfully!`);
       setIsAddingRow(false);
       setNewRow({ name: "", purchase: "", barcode: "", mrp: "", sale: "", size: "" });
-      refreshList();
+      setProductList((current) => [
+        ...current.filter((item) => item.name !== productName),
+        {
+          name: productName,
+          barcode: record.barcode,
+          qrCode: record.qrCode,
+          category: record.category,
+          unit: record.unit,
+          mrp: mrpValue,
+          cost: purchaseValue,
+          sale: saleValue,
+          stock: record.stock,
+          totalQty: 0,
+          inCatalog: true,
+        },
+      ].sort((a, b) => a.name.localeCompare(b.name)));
+      setAllProducts((current) => [
+        ...current.filter((item) => item.name !== productName),
+        record,
+      ]);
 
       if (returnToSales || newRow.barcode.trim()) {
         try {
@@ -501,7 +505,6 @@ export default function ProductPage() {
   };
 
   const beginCellEdit = (product: ProductWithSales, field: EditableColumn) => {
-    if (savingCell) return;
     skipCellSaveRef.current = false;
     setCellError(null);
     setEditingCell({ name: product.name, field });
@@ -594,34 +597,34 @@ export default function ProductPage() {
         break;
     }
 
-    setSavingCell(cellKey);
+    // Apply the change straight away so the table never reloads, then persist
+    // in the background and only report the result through a toast.
+    const previousProductList = productList;
+    const previousAllProducts = allProducts;
+    setProductList((current) =>
+      current.map((item) =>
+        item.name === name
+          ? {
+              ...item,
+              name: next.name,
+              barcode: next.barcode,
+              mrp: next.mrp,
+              sale: next.sale,
+              cost: next.cost,
+              unit: next.unit,
+            }
+          : item
+      )
+    );
+    setAllProducts((current) => [...current.filter((item) => item.name !== name), next]);
+
     try {
       await updateProduct(name, next);
-      setProductList((current) =>
-        current.map((item) =>
-          item.name === name
-            ? {
-                ...item,
-                name: next.name,
-                barcode: next.barcode,
-                mrp: next.mrp,
-                sale: next.sale,
-                cost: next.cost,
-                unit: next.unit,
-              }
-            : item
-        )
-      );
-      setAllProducts((current) => [
-        ...current.filter((item) => item.name !== name),
-        next,
-      ]);
-      showToast("success", `${next.name} updated.`);
+      showToast("success", `${next.name} saved.`);
     } catch (saveError) {
+      setProductList(previousProductList);
+      setAllProducts(previousAllProducts);
       fail(saveError instanceof Error ? saveError.message : "Could not save this change.");
-      refreshList();
-    } finally {
-      setSavingCell(null);
     }
   };
 
@@ -911,7 +914,30 @@ export default function ProductPage() {
         resetForm();
         setShowForm(false);
       }
-      refreshList();
+      // Update the list in place instead of reloading the page below the form.
+      setProductList((current) => {
+        const previousName = editingName ?? record.name;
+        const existingRow = current.find((item) => item.name === previousName);
+        const nextRow: ProductWithSales = {
+          ...(existingRow ?? { name: record.name, totalQty: 0, inCatalog: true, mrp: record.mrp }),
+          name: record.name,
+          barcode: record.barcode,
+          qrCode: record.qrCode,
+          category: record.category,
+          unit: record.unit,
+          mrp: record.mrp,
+          cost: record.cost,
+          sale: record.sale,
+          stock: record.stock,
+          inCatalog: true,
+        };
+        const others = current.filter((item) => item.name !== previousName && item.name !== record.name);
+        return [...others, nextRow].sort((a, b) => a.name.localeCompare(b.name));
+      });
+      setAllProducts((current) => [
+        ...current.filter((item) => item.name !== editingName && item.name !== record.name),
+        record,
+      ]);
       setTimeout(() => setSaved(false), 3000);
 
       // Redirect to Sales page if returnToSales is true or after adding a new product
@@ -927,6 +953,7 @@ export default function ProductPage() {
         }, 200);
         return;
       }
+      showToast("success", `${record.name} saved.`);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to save product.");
     } finally {
@@ -987,11 +1014,7 @@ export default function ProductPage() {
             {error}
           </span>
         )}
-        {savingCell === cellKey && (
-          <span className="block px-2 pb-1 text-[10px] font-semibold text-blue-600">Saving...</span>
-        )}
-      </td>
-    );
+      </td>    );
   };
   const missingDataCell = <span title="No data available" aria-label="No data available" className="font-bold text-amber-600">⚠</span>;
   return (

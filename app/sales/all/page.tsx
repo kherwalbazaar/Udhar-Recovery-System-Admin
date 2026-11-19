@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ref } from "firebase/database";
 import { ShoppingCart, Search, ArrowRight } from "lucide-react";
 import AppShell from "@/components/AppShell";
+import PageBackButton from "@/components/PageBackButton";
 import { db } from "@/lib/firebase";
 import { onValueWithCache, CACHE_KEYS } from "@/lib/cache";
 
@@ -114,7 +115,7 @@ export default function AllSalesPage() {
   return (
     <AppShell title="" active="Sales">
       <div className="flex items-center justify-between">
-        <h1 className="text-xl font-bold text-slate-800">All Sales</h1>
+        <div className="flex items-center gap-2"><PageBackButton /><h1 className="text-xl font-bold text-slate-800">All Sales</h1></div>
         <div className="flex items-center space-x-2">
           <div className="relative w-56">
             <span className="absolute inset-y-0 left-0 flex items-center pl-2.5 pointer-events-none text-slate-400">

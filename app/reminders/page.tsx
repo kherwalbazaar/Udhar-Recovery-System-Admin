@@ -15,6 +15,7 @@ import {
   Loader2,
 } from "lucide-react";
 import AppShell from "@/components/AppShell";
+import PageBackButton from "@/components/PageBackButton";
 import { useToast } from "@/components/ToastProvider";
 import { db } from "@/lib/firebase";
 import { buildKhata, type KhataCustomer, type RawMap } from "@/lib/khata";
@@ -203,9 +204,9 @@ export default function RemindersPage() {
   return (
     <AppShell title="" active="Reminders">
       <div className="flex items-center justify-between">
-        <h1 className="text-xl font-bold text-slate-800">
+        <div className="flex items-center gap-2"><PageBackButton /><h1 className="text-xl font-bold text-slate-800">
           Payment Reminders
-        </h1>
+        </h1></div>
       </div>
 
       <div className="grid grid-cols-4 gap-3">

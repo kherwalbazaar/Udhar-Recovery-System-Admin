@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useState, useRef, type KeyboardEvent } from "react";
 import Link from "next/link";
 import {
-  ArrowLeft,
   ShoppingCart,
   UserPlus,
   Trash2,
@@ -26,6 +25,7 @@ import {
   Pencil,
 } from "lucide-react";
 import AppShell from "@/components/AppShell";
+import PageBackButton from "@/components/PageBackButton";
 import { useToast } from "@/components/ToastProvider";
 import OptionalSupabaseAdminSignIn from "@/components/OptionalSupabaseAdminSignIn";
 import {
@@ -1557,14 +1557,7 @@ export default function AddSalePage() {
     <AppShell title="" active="Sales">
       <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
         <div className="flex items-center gap-2">
-          <Link
-            href="/"
-            aria-label="Go to home"
-            title="Go to home"
-            className="flex h-8 w-8 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 shadow-sm transition hover:bg-slate-100 hover:text-slate-900"
-          >
-            <ArrowLeft className="h-4 w-4" />
-          </Link>
+          <PageBackButton />
           <ShoppingCart className="h-5 w-5 text-violet-700" aria-hidden="true" />
           <h1 className="text-xl font-bold text-slate-800">Sales</h1>
         </div>

@@ -20,6 +20,7 @@ import { onValueWithCache, CACHE_KEYS, triggerActionRefresh } from "@/lib/cache"
   Edit3,
 } from "lucide-react";
 import AppShell from "@/components/AppShell";
+import PageBackButton from "@/components/PageBackButton";
 import { useToast } from "@/components/ToastProvider";
 import { db } from "@/lib/firebase";
 import {
@@ -380,9 +381,9 @@ export default function KhataPage() {
     <AppShell title="Khata (Customers)" active="Khata (Customers)">
       {/* PAGE TITLE */}
       <div className="flex items-center justify-between">
-        <h1 className="text-xl font-bold text-slate-800">
+        <div className="flex items-center gap-2"><PageBackButton /><h1 className="text-xl font-bold text-slate-800">
           Khata (Customers)
-        </h1>
+        </h1></div>
         <button
           type="button"
           className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold px-3 py-2 rounded-lg flex items-center space-x-1.5 transition-colors"

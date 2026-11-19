@@ -37,13 +37,6 @@ const navItems = [
   { label: "Settings", href: "#" },
 ];
 
-const financeItems = [
-  { label: "Payments", href: "#" },
-  { label: "Expenses", href: "#" },
-  { label: "Profit & Loss", href: "#" },
-  { label: "Analytics", href: "#" },
-];
-
 type KpiCard = {
   title: string;
   value: string;
@@ -60,11 +53,32 @@ const fmt = (n: number) =>
 export default function DashboardHome() {
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [customerCount, setCustomerCount] = useState<number | null>(null);
-  const [financeOpen, setFinanceOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
-  const financeRef = useRef<HTMLLIElement>(null);
+  const [navHighlight, setNavHighlight] = useState({ left: 0, top: 0, width: 0, height: 0 });
+  const navListRef = useRef<HTMLUListElement>(null);
+  const dashboardLinkRef = useRef<HTMLAnchorElement>(null);
   const accountRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
+
+  const moveNavHighlight = (target: HTMLElement | null) => {
+    const list = navListRef.current;
+    if (!list || !target) return;
+    const listRect = list.getBoundingClientRect();
+    const targetRect = target.getBoundingClientRect();
+    setNavHighlight({
+      left: targetRect.left - listRect.left,
+      top: targetRect.top - listRect.top,
+      width: targetRect.width,
+      height: targetRect.height,
+    });
+  };
+
+  useEffect(() => {
+    const positionDashboardHighlight = () => moveNavHighlight(dashboardLinkRef.current);
+    positionDashboardHighlight();
+    window.addEventListener("resize", positionDashboardHighlight);
+    return () => window.removeEventListener("resize", positionDashboardHighlight);
+  }, []);
 
   useEffect(() => {
     let salesReady = false;
@@ -113,15 +127,6 @@ export default function DashboardHome() {
 
     return () => unsubs.forEach((unsubscribe) => unsubscribe());
   }, []);
-
-  useEffect(() => {
-    if (!financeOpen) return;
-    const onDocumentClick = (event: MouseEvent) => {
-      if (!financeRef.current?.contains(event.target as Node)) setFinanceOpen(false);
-    };
-    document.addEventListener("click", onDocumentClick);
-    return () => document.removeEventListener("click", onDocumentClick);
-  }, [financeOpen]);
 
   useEffect(() => {
     if (!accountOpen) return;
@@ -356,19 +361,26 @@ export default function DashboardHome() {
             aria-label="Primary Navigation"
             className="mt-4 rounded-2xl border border-white/40 bg-gradient-to-r from-[#074173]/95 via-[#0c5694]/95 to-[#074173]/95 p-1.5 text-white shadow-xl backdrop-blur-md"
           >
-            <ul className="flex flex-wrap items-center justify-between gap-1">
+            <ul
+              ref={navListRef}
+              onMouseLeave={() => moveNavHighlight(dashboardLinkRef.current)}
+              className="relative flex flex-wrap items-center justify-between gap-1"
+            >
+              <span
+                aria-hidden="true"
+                className="pointer-events-none absolute rounded-xl border border-white/30 bg-gradient-to-r from-[#0284c7] to-[#38bdf8] shadow-md transition-[left,top,width,height] duration-300 ease-in-out"
+                style={navHighlight}
+              />
               {navItems.map(({ label, href }) => {
                 const isActive = label === "Dashboard";
                 return (
                   <li key={label}>
                     <Link
+                      ref={isActive ? dashboardLinkRef : undefined}
                       href={href}
                       aria-current={isActive ? "page" : undefined}
-                      className={`flex items-center gap-1.5 whitespace-nowrap rounded-xl px-3.5 py-2 text-xs font-semibold transition sm:text-sm ${
-                        isActive
-                          ? "border border-white/30 bg-gradient-to-r from-[#0284c7] to-[#38bdf8] font-bold text-white shadow-md"
-                          : "text-sky-100 hover:bg-white/15 hover:text-white"
-                      }`}
+                      onMouseEnter={(event) => moveNavHighlight(event.currentTarget)}
+                      className={`relative z-10 flex items-center gap-1.5 whitespace-nowrap rounded-xl px-3.5 py-2 text-xs font-semibold transition-colors sm:text-sm ${isActive ? "font-bold text-white" : "text-sky-100 hover:text-white"}`}
                     >
                       <span>{label}</span>
                     </Link>
@@ -376,40 +388,6 @@ export default function DashboardHome() {
                 );
               })}
 
-              <li className="relative" ref={financeRef}>
-                <button
-                  type="button"
-                  aria-expanded={financeOpen}
-                  aria-controls="dashboard-finance-menu"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    setFinanceOpen((open) => !open);
-                  }}
-                  className="flex items-center gap-1.5 whitespace-nowrap rounded-xl border border-white/25 bg-white/10 px-3.5 py-2 text-xs font-bold text-white transition hover:bg-white/20 sm:text-sm"
-                >
-                  <span>Finance</span>
-                  <ChevronDown
-                    className={`h-4 w-4 transition-transform duration-200 ${financeOpen ? "rotate-180" : ""}`}
-                  />
-                </button>
-
-                {financeOpen && (
-                  <div
-                    id="dashboard-finance-menu"
-                    className="absolute right-0 z-30 mt-2 w-48 origin-top-right rounded-xl border border-sky-200/80 bg-white/95 p-1.5 text-slate-800 shadow-2xl backdrop-blur-md"
-                  >
-                    {financeItems.map(({ label, href }) => (
-                      <Link
-                        key={label}
-                        href={href}
-                        className="flex items-center rounded-lg px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-sky-50 hover:text-[#0369a1] sm:text-sm"
-                      >
-                        {label}
-                      </Link>
-                    ))}
-                  </div>
-                )}
-              </li>
             </ul>
           </nav>
 

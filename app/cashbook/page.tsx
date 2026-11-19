@@ -38,6 +38,7 @@ import {
   X,
 } from "lucide-react";
 import AppShell from "@/components/AppShell";
+import PageBackButton from "@/components/PageBackButton";
 import { useToast } from "@/components/ToastProvider";
 import { db } from "@/lib/firebase";
 import {
@@ -312,7 +313,7 @@ export default function CashBookPage() {
     <AppShell title="Cash Book" active="Cash Book">
       {/* PAGE TITLE */}
       <div className="flex items-center justify-between">
-        <h1 className="text-xl font-bold text-slate-800">Cash Book</h1>
+        <div className="flex items-center gap-2"><PageBackButton /><h1 className="text-xl font-bold text-slate-800">Cash Book</h1></div>
         <button
           type="button"
           onClick={() => openAdd("in")}

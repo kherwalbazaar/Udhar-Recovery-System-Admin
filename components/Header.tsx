@@ -138,7 +138,15 @@ export default function Header({ active = "Dashboard" }: { active?: string }) {
           </div>
         </div>
       </div>
-      {active !== "Product" && active !== "Sales" && (
+      {![
+        "Product",
+        "Sales",
+        "Sale Report",
+        "Khata (Customers)",
+        "Suppliers",
+        "Cash Book",
+        "Reminders",
+      ].includes(active) && (
         <HeaderNavigation active={active} />
       )}
     </header>

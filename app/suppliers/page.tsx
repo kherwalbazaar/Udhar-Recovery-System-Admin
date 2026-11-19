@@ -21,6 +21,7 @@ import { onValueWithCache, CACHE_KEYS, triggerActionRefresh } from "@/lib/cache"
   ShoppingCart,
 } from "lucide-react";
 import AppShell from "@/components/AppShell";
+import PageBackButton from "@/components/PageBackButton";
 import { useToast } from "@/components/ToastProvider";
 import { db } from "@/lib/firebase";
 import {
@@ -448,7 +449,7 @@ export default function SuppliersPage() {
     <AppShell title="Suppliers" active="Suppliers">
       {/* PAGE TITLE */}
       <div className="flex items-center justify-between">
-        <h1 className="text-xl font-bold text-slate-800">Suppliers</h1>
+        <div className="flex items-center gap-2"><PageBackButton /><h1 className="text-xl font-bold text-slate-800">Suppliers</h1></div>
         <button
           type="button"
           onClick={() => {

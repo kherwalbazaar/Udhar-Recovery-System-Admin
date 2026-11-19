@@ -6,7 +6,6 @@ import { useRouter } from "next/navigation";
 import { onValue, push, ref, set, update } from "firebase/database";
 import {
   Package,
-  ArrowLeft,
   ScanLine,
   Clock,
   Check,
@@ -22,6 +21,7 @@ import {
 import AppShell from "@/components/AppShell";
 import { useToast } from "@/components/ToastProvider";
 import ProductImage from "@/components/ProductImage";
+import PageBackButton from "@/components/PageBackButton";
 import {
   saveProduct,
   updateProduct,
@@ -1390,9 +1390,7 @@ export default function ProductPage() {
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2 border-b border-slate-300 pb-2">
           <div className="flex w-full flex-wrap items-center gap-3 xl:w-auto">
             <div className="flex items-center gap-1.5 text-base font-bold text-slate-800">
-              <Link href="/" aria-label="Go to home" title="Go to home" className="mr-1 flex h-8 w-8 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 shadow-sm transition hover:bg-slate-100 hover:text-slate-900">
-                <ArrowLeft className="h-4 w-4" />
-              </Link>
+              <PageBackButton />
               <Boxes className="h-5 w-5 text-emerald-700" />
               <span>All Products ({productList.length})</span>
             </div>

@@ -323,6 +323,14 @@ export default function ProductPage() {
       const importedCount = Object.keys(updates).length;
       showToast(skipped ? "warning" : "success", `Imported ${importedCount} products${skipped ? `; skipped ${skipped} invalid rows` : ""}.`);
       triggerActionRefresh();
+      // Re-read the merged catalog quietly so the table matches the import
+      // without reloading the page or flashing a loading state.
+      fetchCatalogProducts()
+        .then((data) => setProductList(data))
+        .catch(() => {});
+      fetchAllProducts()
+        .then(setAllProducts)
+        .catch(() => {});
     } catch (importError) {
       showToast("error", importError instanceof Error ? importError.message : "Could not import this CSV file.");
     } finally {

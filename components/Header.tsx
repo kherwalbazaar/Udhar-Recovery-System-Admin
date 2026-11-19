@@ -38,16 +38,15 @@ export default function Header({ active = "Dashboard" }: { active?: string }) {
     }, 400);
   }, []);
 
-  // No auto-refresh: refresh only after an action (manual click or after save/update)
-  // Listen for programmatic refresh after any successful add/update
+  // Refresh data quietly after a successful add/update/delete.
+  // Never reload the page: pages already patch their own state, and cached
+  // listeners re-fetch in the background.
   useEffect(() => {
     const onActionRefresh = () => {
       setIsSpinning(true);
       triggerBackgroundRefresh();
-      setTimeout(() => {
-        setIsSpinning(false);
-        window.location.reload();
-      }, 400);
+      const timer = setTimeout(() => setIsSpinning(false), 700);
+      return () => clearTimeout(timer);
     };
     window.addEventListener("udhar:action-refresh", onActionRefresh);
     return () => window.removeEventListener("udhar:action-refresh", onActionRefresh);

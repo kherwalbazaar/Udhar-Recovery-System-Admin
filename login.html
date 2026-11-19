@@ -1,0 +1,501 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Udhar Recovery System Admin - Login</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <style>
+    body {
+      font-family: 'Inter', sans-serif;
+    }
+    .login-card-shadow {
+      box-shadow: 0 20px 50px rgba(7, 45, 95, 0.14), 0 4px 16px rgba(14, 116, 144, 0.08);
+    }
+    .login-btn-shadow {
+      box-shadow: 0 10px 24px -4px rgba(2, 132, 199, 0.45);
+    }
+    .feature-badge-shadow {
+      box-shadow: 0 4px 10px rgba(0, 0, 0, 0.12);
+    }
+  </style>
+</head>
+<body class="relative flex min-h-screen w-full flex-col justify-between overflow-x-hidden bg-gradient-to-br from-[#dff3ff] via-[#eef8ff] to-[#cbe8fb] text-[#0b2559] select-none">
+
+  <!-- Background Soft Store Shelf Silhouette, Sweeping Waves & Diagonal Lighting -->
+  <div class="pointer-events-none fixed inset-0 z-0 overflow-hidden">
+    <!-- Top-Left Radial Light Glow -->
+    <div class="absolute -left-24 -top-24 h-[520px] w-[520px] rounded-full bg-white/80 blur-3xl"></div>
+
+    <!-- Subtle Blurred Retail Shelf Visual on Bottom-Left / Center -->
+    <svg class="absolute bottom-10 left-[22%] h-72 w-[480px] opacity-20 blur-[1px]" viewBox="0 0 480 280" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <!-- Shelf Frame -->
+      <rect x="20" y="20" width="440" height="240" rx="8" fill="#93c5fd" />
+      <rect x="35" y="75" width="410" height="8" fill="#3b82f6" />
+      <rect x="35" y="135" width="410" height="8" fill="#3b82f6" />
+      <rect x="35" y="195" width="410" height="8" fill="#3b82f6" />
+      <!-- Folded Garment Stacks on Shelves -->
+      <rect x="55" y="45" width="55" height="30" rx="4" fill="#0284c7" />
+      <rect x="125" y="40" width="60" height="35" rx="4" fill="#10b981" />
+      <rect x="205" y="48" width="50" height="27" rx="4" fill="#f59e0b" />
+      <rect x="275" y="42" width="65" height="33" rx="4" fill="#ec4899" />
+      <rect x="355" y="45" width="60" height="30" rx="4" fill="#6366f1" />
+
+      <rect x="50" y="102" width="65" height="33" rx="4" fill="#ec4899" />
+      <rect x="130" y="105" width="55" height="30" rx="4" fill="#0ea5e9" />
+      <rect x="200" y="98" width="65" height="37" rx="4" fill="#8b5cf6" />
+      <rect x="280" y="105" width="55" height="30" rx="4" fill="#14b8a6" />
+      <rect x="350" y="100" width="65" height="35" rx="4" fill="#f97316" />
+
+      <rect x="60" y="160" width="60" height="35" rx="4" fill="#14b8a6" />
+      <rect x="135" y="163" width="65" height="32" rx="4" fill="#f43f5e" />
+      <rect x="215" y="158" width="55" height="37" rx="4" fill="#0284c7" />
+      <rect x="285" y="163" width="60" height="32" rx="4" fill="#eab308" />
+    </svg>
+
+    <!-- Bottom Sweeping Teal & Royal Blue Curves -->
+    <svg class="absolute inset-x-0 bottom-8 h-48 w-full" viewBox="0 0 1440 200" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
+      <!-- Teal Left Curve -->
+      <path d="M0,45 C240,125 460,155 760,145 C1060,135 1280,85 1440,35 L1440,200 L0,200 Z" fill="#14b8a6" fill-opacity="0.85" />
+      <!-- Deep Blue Overlay Wave -->
+      <path d="M0,105 C320,175 680,175 1040,120 C1230,90 1350,70 1440,65 L1440,200 L0,200 Z" fill="#0369a1" fill-opacity="0.9" />
+      <!-- Soft White Counter Highlight -->
+      <path d="M0,130 C350,185 720,175 1440,115 L1440,200 L0,200 Z" fill="#e0f2fe" fill-opacity="0.35" />
+    </svg>
+  </div>
+
+  <!-- Main Content Container -->
+  <main class="relative z-10 mx-auto flex w-full max-w-[1360px] flex-1 flex-col items-center justify-between gap-8 px-4 py-6 sm:px-8 lg:flex-row lg:items-stretch lg:py-8">
+
+    <!-- LEFT COLUMN: Branding, Tagline, Feature List & POS/Apparel Illustration -->
+    <div class="flex w-full flex-col justify-between lg:w-[54%]">
+      <div>
+        <!-- Top Brand Lockup -->
+        <div class="flex flex-wrap items-center gap-4 sm:gap-5">
+          <!-- Custom Shop Awning + Calculator SVG Logo -->
+          <div class="relative flex h-24 w-24 shrink-0 items-center justify-center sm:h-28 sm:w-28">
+            <svg class="h-full w-full drop-shadow-md" viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <!-- Bottom Yellow & Green Swoosh -->
+              <path d="M12 92C34 108 78 108 106 86C84 100 42 100 16 84L12 92Z" fill="#eab308" />
+              <path d="M10 96C36 115 82 114 108 90C82 106 38 106 14 90L10 96Z" fill="#10b981" />
+
+              <!-- Storefront Building Body -->
+              <rect x="22" y="46" width="64" height="48" rx="4" fill="#ffffff" stroke="#0e7490" stroke-width="2" />
+              <!-- Dark Blue Display Window -->
+              <rect x="30" y="56" width="24" height="22" rx="3" fill="#0c4a6e" />
+
+              <!-- Striped Teal & White Awning -->
+              <path d="M16 46L24 24H84L92 46H16Z" fill="#14b8a6" />
+              <path d="M31 24H43L40 46H26L31 24Z" fill="#ffffff" />
+              <path d="M53 24H65L66 46H52L53 24Z" fill="#ffffff" />
+              <path d="M75 24H84L92 46H78L75 24Z" fill="#0d9488" />
+              <!-- Scalloped Awning Bottom Edge -->
+              <path d="M16 46C16 51 22 54 27 54C32 54 36 51 36 46C36 51 41 54 46 54C51 54 55 51 55 46C55 51 60 54 65 54C70 54 74 51 74 46C74 51 79 54 84 54C89 54 92 51 92 46H16Z" fill="#0d9488" />
+
+              <!-- Overlapping Calculator Icon on Bottom-Right -->
+              <rect x="64" y="52" width="36" height="44" rx="5" fill="#0c4a6e" stroke="#ffffff" stroke-width="2" />
+              <!-- Calculator Screen -->
+              <rect x="70" y="58" width="24" height="9" rx="2" fill="#bae6fd" />
+              <!-- Calculator Keypad Buttons -->
+              <circle cx="73" cy="74" r="2.3" fill="#ffffff" />
+              <circle cx="82" cy="74" r="2.3" fill="#ffffff" />
+              <circle cx="91" cy="74" r="2.3" fill="#2dd4bf" />
+              <circle cx="73" cy="82" r="2.3" fill="#ffffff" />
+              <circle cx="82" cy="82" r="2.3" fill="#ffffff" />
+              <circle cx="91" cy="82" r="2.3" fill="#facc15" />
+              <circle cx="73" cy="89" r="2.3" fill="#ffffff" />
+              <circle cx="82" cy="89" r="2.3" fill="#ffffff" />
+              <circle cx="91" cy="89" r="2.3" fill="#2dd4bf" />
+            </svg>
+          </div>
+
+          <!-- Title & Admin Pill -->
+          <div>
+            <h1 class="text-3xl font-extrabold leading-none tracking-tight text-[#0b3578] sm:text-4xl md:text-[42px]">
+              Udhar Recovery
+            </h1>
+            <div class="mt-1.5 flex items-center gap-3">
+              <span class="text-3xl font-extrabold leading-none tracking-tight text-[#0b3578] sm:text-4xl md:text-[42px]">
+                System
+              </span>
+              <span class="rounded-xl bg-[#10b981] px-4 py-1.5 text-xl font-bold text-white shadow-sm sm:text-2xl">
+                Admin
+              </span>
+            </div>
+
+            <!-- Subtitle + Teal Underline Accent -->
+            <p class="mt-2.5 text-sm font-bold italic text-[#0b2559] sm:text-base">
+              Smart Shop Management &amp; Khata System
+            </p>
+            <div class="mt-1.5 flex flex-col gap-1">
+              <div class="h-[2.5px] w-64 rounded-full bg-gradient-to-r from-transparent via-[#14b8a6] to-transparent"></div>
+              <div class="ml-6 h-[2px] w-48 rounded-full bg-gradient-to-r from-[#0ea5e9] to-transparent"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- "Manage Your Business Smartly..." Highlight Banner -->
+        <div class="mt-6 inline-block w-full max-w-lg rounded-2xl border border-white/70 bg-white/45 px-6 py-3.5 text-center shadow-sm backdrop-blur-xs">
+          <h2 class="text-xl font-extrabold italic tracking-tight text-[#0b3578] sm:text-2xl">
+            Manage Your Business Smartly...
+          </h2>
+          <div class="mt-1.5 flex flex-wrap items-center justify-center gap-2.5 text-xs font-bold text-[#0b2559] sm:text-sm">
+            <span>Sales</span>
+            <span class="h-1.5 w-1.5 rounded-full bg-[#14b8a6]"></span>
+            <span>Khata</span>
+            <span class="h-1.5 w-1.5 rounded-full bg-[#14b8a6]"></span>
+            <span>Reports</span>
+            <span class="h-1.5 w-1.5 rounded-full bg-[#14b8a6]"></span>
+            <span>More</span>
+          </div>
+        </div>
+
+        <!-- 5 Feature Bullet Points with Colored Rounded Icon Badges -->
+        <ul class="mt-5 space-y-3">
+          <!-- Item 1: Easy Sales Management -->
+          <li class="flex items-center gap-3.5">
+            <span class="feature-badge-shadow flex h-9 w-11 shrink-0 items-center justify-center rounded-lg bg-[#0284c7] text-white">
+              <svg class="h-5 w-5" fill="currentColor" viewBox="0 0 20 20">
+                <path d="M3 1a1 1 0 000 2h1.22l.305 1.222a.997.997 0 00.01.042l1.358 5.43-.893.892C3.74 11.846 4.632 14 6.414 14H15a1 1 0 000-2H6.414l1-1H14a1 1 0 00.894-.553l3-6A1 1 0 0017 3H6.28l-.31-1.243A1 1 0 005 1H3zM16 16.5a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0zM6.5 18a1.5 1.5 0 100-3 1.5 1.5 0 000 3z" />
+              </svg>
+            </span>
+            <span class="text-base font-bold text-[#0b2559]">Easy Sales Management</span>
+          </li>
+
+          <!-- Item 2: Khata & Customer Tracking -->
+          <li class="flex items-center gap-3.5">
+            <span class="feature-badge-shadow flex h-9 w-11 shrink-0 items-center justify-center rounded-lg bg-[#16a34a] text-white">
+              <svg class="h-5 w-5" fill="currentColor" viewBox="0 0 20 20">
+                <path d="M13 6a3 3 0 11-6 0 3 3 0 016 0zM18 8a2 2 0 11-4 0 2 2 0 014 0zM14 15a4 4 0 00-8 0v3h8v-3zM6 8a2 2 0 11-4 0 2 2 0 014 0zM16 18v-3a5.972 5.972 0 00-.75-2.906A3.005 3.005 0 0119 15v3h-3zM4.75 12.094A5.973 5.973 0 004 15v3H1v-3a3 3 0 013.75-2.906z" />
+              </svg>
+            </span>
+            <span class="text-base font-bold text-[#0b2559]">Khata &amp; Customer Tracking</span>
+          </li>
+
+          <!-- Item 3: Detailed Reports -->
+          <li class="flex items-center gap-3.5">
+            <span class="feature-badge-shadow flex h-9 w-11 shrink-0 items-center justify-center rounded-lg bg-[#4f46e5] text-white">
+              <svg class="h-5 w-5" fill="currentColor" viewBox="0 0 20 20">
+                <path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zM8 7a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zM14 4a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z" />
+              </svg>
+            </span>
+            <span class="text-base font-bold text-[#0b2559]">Detailed Reports</span>
+          </li>
+
+          <!-- Item 4: Cash Book & Finance -->
+          <li class="flex items-center gap-3.5">
+            <span class="feature-badge-shadow flex h-9 w-11 shrink-0 items-center justify-center rounded-lg bg-[#f97316] text-white">
+              <svg class="h-5 w-5" fill="currentColor" viewBox="0 0 20 20">
+                <path d="M4 4a2 2 0 00-2 2v1h16V6a2 2 0 00-2-2H4z" />
+                <path fill-rule="evenodd" d="M18 9H2v5a2 2 0 002 2h12a2 2 0 002-2V9zM4 13a1 1 0 011-1h1a1 1 0 110 2H5a1 1 0 01-1-1zm5-1a1 1 0 100 2h1a1 1 0 100-2H9z" clip-rule="evenodd" />
+              </svg>
+            </span>
+            <span class="text-base font-bold text-[#0b2559]">Cash Book &amp; Finance</span>
+          </li>
+
+          <!-- Item 5: Reminders & Alerts -->
+          <li class="flex items-center gap-3.5">
+            <span class="feature-badge-shadow flex h-9 w-11 shrink-0 items-center justify-center rounded-lg bg-[#ec4899] text-white">
+              <svg class="h-5 w-5" fill="currentColor" viewBox="0 0 20 20">
+                <path d="M10 2a6 6 0 00-6 6v3.586l-.707.707A1 1 0 004 14h12a1 1 0 00.707-1.707L16 11.586V8a6 6 0 00-6-6zM10 18a3 3 0 01-3-3h6a3 3 0 01-3 3z" />
+              </svg>
+            </span>
+            <span class="text-base font-bold text-[#0b2559]">Reminders &amp; Alerts</span>
+          </li>
+        </ul>
+      </div>
+
+      <!-- Bottom-Left Retail POS Terminal, Thermal Printer, Shopping Bags & Folded Clothes Graphic -->
+      <div class="mt-6 hidden sm:block">
+        <svg class="h-44 w-full max-w-xl drop-shadow-lg" viewBox="0 0 560 180" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <!-- Counter Surface -->
+          <ellipse cx="275" cy="166" rx="260" ry="12" fill="#bae6fd" fill-opacity="0.85" />
+
+          <!-- Card Swipe / Barcode Scanner Left -->
+          <rect x="42" y="102" width="32" height="58" rx="5" fill="#1e293b" />
+          <rect x="47" y="108" width="22" height="16" rx="2" fill="#38bdf8" />
+          <rect x="35" y="148" width="46" height="14" rx="3" fill="#0f172a" />
+
+          <!-- POS Touchscreen Monitor -->
+          <path d="M126 124L142 154H168L154 124H126Z" fill="#334155" />
+          <rect x="108" y="150" width="84" height="12" rx="3" fill="#0f172a" />
+          <rect x="86" y="54" width="114" height="76" rx="8" fill="#1e293b" />
+          <rect x="93" y="61" width="100" height="62" rx="4" fill="url(#posScreen)" />
+          <defs>
+            <linearGradient id="posScreen" x1="93" y1="61" x2="193" y2="123" gradientUnits="userSpaceOnUse">
+              <stop stop-color="#7dd3fc" />
+              <stop offset="1" stop-color="#0284c7" />
+            </linearGradient>
+          </defs>
+
+          <!-- Thermal Receipt Printer with Printed Paper Bill -->
+          <rect x="216" y="112" width="76" height="48" rx="8" fill="#1e293b" />
+          <rect x="226" y="118" width="56" height="6" rx="2" fill="#0f172a" />
+          <!-- Paper Receipt -->
+          <path d="M232 120L238 78H274L270 120H232Z" fill="#ffffff" />
+          <line x1="242" y1="86" x2="266" y2="86" stroke="#94a3b8" stroke-width="2" />
+          <line x1="241" y1="93" x2="262" y2="93" stroke="#94a3b8" stroke-width="2" />
+          <line x1="240" y1="100" x2="265" y2="100" stroke="#94a3b8" stroke-width="2" />
+          <line x1="239" y1="107" x2="258" y2="107" stroke="#0284c7" stroke-width="2.5" />
+
+          <!-- Shopping Bags Behind Clothes -->
+          <!-- Pink Bag -->
+          <path d="M352 46H406L412 126H346L352 46Z" fill="#ec4899" />
+          <path d="M368 46C368 34 390 34 390 46" stroke="#be185d" stroke-width="3" fill="none" />
+          <!-- Blue Bag -->
+          <path d="M312 58H368L374 134H306L312 58Z" fill="#0ea5e9" />
+          <path d="M328 58C328 45 352 45 352 58" stroke="#0369a1" stroke-width="3" fill="none" />
+
+          <!-- Stack of 3 Folded Garments (Yellow bottom, Pink middle, Blue top) -->
+          <!-- Bottom Yellow Folded Shirt -->
+          <rect x="334" y="140" width="146" height="20" rx="9" fill="#f59e0b" />
+          <rect x="338" y="144" width="138" height="6" rx="3" fill="#fbbf24" />
+          <!-- Middle Pink Folded Shirt -->
+          <rect x="338" y="122" width="138" height="20" rx="9" fill="#db2777" />
+          <rect x="342" y="126" width="130" height="6" rx="3" fill="#f472b6" />
+          <!-- Top Blue Folded Shirt with Collar Fold -->
+          <rect x="342" y="104" width="130" height="20" rx="9" fill="#0284c7" />
+          <path d="M388 104L407 113L426 104" fill="#38bdf8" />
+        </svg>
+      </div>
+    </div>
+
+    <!-- RIGHT COLUMN: White Login Card -->
+    <div class="flex w-full items-center justify-center lg:w-[44%]">
+      <div class="login-card-shadow relative w-full max-w-[460px] rounded-[28px] border border-white bg-white/95 px-6 py-7 backdrop-blur-md sm:px-9 sm:py-8">
+
+        <!-- Top-Right Language Selector Pill -->
+        <div class="flex justify-end">
+          <div class="relative">
+            <button
+              type="button"
+              id="lang-btn"
+              class="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50/90 px-3 py-1.5 text-xs font-semibold text-[#0b2559] shadow-2xs hover:bg-slate-100 transition"
+            >
+              <!-- Globe Icon -->
+              <svg class="h-4 w-4 text-[#0b3578]" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+                <circle cx="12" cy="12" r="9" />
+                <path d="M3.6 9h16.8M3.6 15h16.8M12 3a14.5 14.5 0 000 18M12 3a14.5 14.5 0 010 18" />
+              </svg>
+              <span id="selected-lang">English</span>
+              <svg class="h-3.5 w-3.5 text-slate-500" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+
+            <!-- Language Dropdown -->
+            <div id="lang-menu" class="absolute right-0 mt-1.5 hidden w-32 rounded-xl border border-slate-200 bg-white p-1 text-xs font-semibold text-slate-700 shadow-lg z-30">
+              <button type="button" onclick="selectLang('English')" class="block w-full rounded-lg px-3 py-1.5 text-left hover:bg-sky-50 hover:text-[#0284c7]">English</button>
+              <button type="button" onclick="selectLang('ଓଡ଼ିଆ (Odia)')" class="block w-full rounded-lg px-3 py-1.5 text-left hover:bg-sky-50 hover:text-[#0284c7]">ଓଡ଼ିଆ (Odia)</button>
+              <button type="button" onclick="selectLang('ᱥᱟᱱᱛᱟᱲᱤ (Santali)')" class="block w-full rounded-lg px-3 py-1.5 text-left hover:bg-sky-50 hover:text-[#0284c7]">ᱥᱟᱱᱛᱟᱲᱤ (Santali)</button>
+              <button type="button" onclick="selectLang('हिंदी (Hindi)')" class="block w-full rounded-lg px-3 py-1.5 text-left hover:bg-sky-50 hover:text-[#0284c7]">हिंदी (Hindi)</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Circular Shop Badge Emblem -->
+        <div class="mt-1 flex flex-col items-center text-center">
+          <div class="flex h-24 w-24 items-center justify-center rounded-full border-[3px] border-[#0ea5e9] bg-gradient-to-b from-[#f0f9ff] to-white p-2.5 shadow-md">
+            <svg class="h-16 w-16" viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M12 92C34 108 78 108 106 86C84 100 42 100 16 84L12 92Z" fill="#eab308" />
+              <path d="M10 96C36 115 82 114 108 90C82 106 38 106 14 90L10 96Z" fill="#10b981" />
+              <rect x="22" y="46" width="64" height="48" rx="4" fill="#ffffff" stroke="#0e7490" stroke-width="2" />
+              <rect x="30" y="56" width="24" height="22" rx="3" fill="#0c4a6e" />
+              <path d="M16 46L24 24H84L92 46H16Z" fill="#14b8a6" />
+              <path d="M31 24H43L40 46H26L31 24Z" fill="#ffffff" />
+              <path d="M53 24H65L66 46H52L53 24Z" fill="#ffffff" />
+              <path d="M75 24H84L92 46H78L75 24Z" fill="#0d9488" />
+              <path d="M16 46C16 51 22 54 27 54C32 54 36 51 36 46C36 51 41 54 46 54C51 54 55 51 55 46C55 51 60 54 65 54C70 54 74 51 74 46C74 51 79 54 84 54C89 54 92 51 92 46H16Z" fill="#0d9488" />
+              <rect x="64" y="52" width="36" height="44" rx="5" fill="#0c4a6e" stroke="#ffffff" stroke-width="2" />
+              <rect x="70" y="58" width="24" height="9" rx="2" fill="#bae6fd" />
+              <circle cx="73" cy="74" r="2.3" fill="#ffffff" />
+              <circle cx="82" cy="74" r="2.3" fill="#ffffff" />
+              <circle cx="91" cy="74" r="2.3" fill="#2dd4bf" />
+              <circle cx="73" cy="82" r="2.3" fill="#ffffff" />
+              <circle cx="82" cy="82" r="2.3" fill="#ffffff" />
+              <circle cx="91" cy="82" r="2.3" fill="#facc15" />
+              <circle cx="73" cy="89" r="2.3" fill="#ffffff" />
+              <circle cx="82" cy="89" r="2.3" fill="#ffffff" />
+              <circle cx="91" cy="89" r="2.3" fill="#2dd4bf" />
+            </svg>
+          </div>
+
+          <h2 class="mt-3 text-3xl font-extrabold tracking-tight text-[#0b2559]">
+            Welcome Back!
+          </h2>
+          <p class="mt-1 text-sm font-medium text-[#1e3a8a]/85">
+            Login to your Udhar Recovery System
+          </p>
+        </div>
+
+        <!-- Login Form -->
+        <form class="mt-6 space-y-4" onsubmit="event.preventDefault();">
+          <!-- Username or Mobile Number Input -->
+          <div class="relative flex items-center rounded-xl border border-slate-200 bg-slate-50/70 px-3.5 py-3 focus-within:border-[#0284c7] focus-within:bg-white focus-within:ring-2 focus-within:ring-sky-100 transition">
+            <svg class="h-5 w-5 shrink-0 text-[#0f172a]" fill="currentColor" viewBox="0 0 20 20">
+              <path fill-rule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clip-rule="evenodd" />
+            </svg>
+            <input
+              type="text"
+              placeholder="Username or Mobile Number"
+              required
+              class="ml-3 w-full bg-transparent text-sm font-medium text-slate-800 placeholder-slate-400 focus:outline-none"
+            />
+          </div>
+
+          <!-- Password Input with Show/Hide Toggle -->
+          <div class="relative flex items-center rounded-xl border border-slate-200 bg-slate-50/70 px-3.5 py-3 focus-within:border-[#0284c7] focus-within:bg-white focus-within:ring-2 focus-within:ring-sky-100 transition">
+            <svg class="h-5 w-5 shrink-0 text-[#0f172a]" fill="currentColor" viewBox="0 0 20 20">
+              <path fill-rule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clip-rule="evenodd" />
+            </svg>
+            <input
+              id="password-input"
+              type="password"
+              placeholder="Password"
+              required
+              class="ml-3 w-full bg-transparent text-sm font-medium text-slate-800 placeholder-slate-400 focus:outline-none"
+            />
+            <button
+              type="button"
+              id="toggle-password"
+              aria-label="Toggle Password Visibility"
+              class="ml-2 text-slate-500 hover:text-slate-800 focus:outline-none"
+            >
+              <!-- Eye Off Icon (Default) -->
+              <svg id="eye-off-icon" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
+              </svg>
+              <!-- Eye On Icon (Hidden Initially) -->
+              <svg id="eye-on-icon" class="hidden h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                <path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+              </svg>
+            </button>
+          </div>
+
+          <!-- Remember Me & Forgot Password Row -->
+          <div class="flex items-center justify-between pt-0.5 text-xs sm:text-sm">
+            <label class="flex cursor-pointer items-center gap-2 font-semibold text-[#0b2559]">
+              <input type="checkbox" class="h-4 w-4 rounded border-slate-300 text-[#0284c7] focus:ring-[#0284c7]" />
+              <span>Remember Me</span>
+            </label>
+            <a href="#forgot-password" class="font-bold text-[#026aa7] hover:underline">
+              Forgot Password?
+            </a>
+          </div>
+
+          <!-- Gradient Login Button -->
+          <button
+            type="submit"
+            class="login-btn-shadow mt-2 flex w-full items-center justify-center gap-2.5 rounded-xl bg-gradient-to-r from-[#10b981] via-[#0ea5e9] to-[#026aa7] py-3.5 text-lg font-bold text-white transition hover:brightness-105 active:scale-[0.99]"
+          >
+            <svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2.4" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1" />
+            </svg>
+            <span>Login</span>
+          </button>
+        </form>
+
+        <!-- "or" Divider -->
+        <div class="relative my-5 flex items-center justify-center">
+          <div class="h-[1px] w-full bg-slate-200"></div>
+          <span class="mx-3 rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-slate-500">
+            or
+          </span>
+          <div class="h-[1px] w-full bg-slate-200"></div>
+        </div>
+
+        <!-- Secure & Trusted Badge Box -->
+        <div class="flex items-center justify-center gap-3 rounded-2xl border border-slate-200/80 bg-[#f1f6fa] px-4 py-3.5">
+          <!-- Green Shield Check Icon -->
+          <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#16a34a]/15 text-[#16a34a]">
+            <svg class="h-6 w-6" fill="currentColor" viewBox="0 0 20 20">
+              <path fill-rule="evenodd" d="M2.166 4.999A11.954 11.954 0 0010 1.944 11.954 11.954 0 0017.834 5c.11.65.166 1.32.166 2.001 0 5.225-3.34 9.67-8 11.317C5.34 16.67 2 12.225 2 7c0-.682.057-1.35.166-2.001zm11.541 3.708a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
+            </svg>
+          </div>
+          <div class="text-left leading-tight">
+            <p class="text-sm font-extrabold text-[#15803d]">Secure &amp; Trusted</p>
+            <p class="text-xs font-medium text-slate-600">Your data is safe with us</p>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+  </main>
+
+  <!-- Bottom Dark Blue Footer Bar -->
+  <footer class="relative z-10 w-full bg-[#044a75] px-4 py-2.5 text-white shadow-inner">
+    <div class="mx-auto flex max-w-[1360px] flex-col items-center justify-between gap-2 text-xs font-medium sm:flex-row sm:text-[13px]">
+      <!-- Left: Shop Address -->
+      <div class="flex items-center gap-2 text-center sm:text-left">
+        <svg class="h-4 w-4 shrink-0 text-white" fill="currentColor" viewBox="0 0 20 20">
+          <path fill-rule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clip-rule="evenodd" />
+        </svg>
+        <span>KHERWAL BAZAAR, Bahanada, Khunta, Mayurbhanj, Odisha</span>
+      </div>
+
+      <!-- Divider -->
+      <span class="hidden h-4 w-[1px] bg-white/30 md:inline-block"></span>
+
+      <!-- Center: Version -->
+      <div class="flex items-center gap-2">
+        <svg class="h-4 w-4 shrink-0 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <rect x="3" y="4" width="18" height="18" rx="2" />
+          <path d="M16 2v4M8 2v4M3 10h18" />
+        </svg>
+        <span>Version 1.0</span>
+      </div>
+
+      <!-- Divider -->
+      <span class="hidden h-4 w-[1px] bg-white/30 md:inline-block"></span>
+
+      <!-- Right: Made with Love -->
+      <div class="flex items-center gap-1.5">
+        <span>Made with</span>
+        <svg class="h-4 w-4 text-[#ec4899]" fill="currentColor" viewBox="0 0 20 20">
+          <path fill-rule="evenodd" d="M3.172 5.172a4 4 0 015.656 0L10 6.343l1.172-1.171a4 4 0 115.656 5.656L10 17.657l-6.828-6.829a4 4 0 010-5.656z" clip-rule="evenodd" />
+        </svg>
+        <span>for Your Business</span>
+      </div>
+    </div>
+  </footer>
+
+  <!-- Interactive Password Visibility & Language Dropdown Script -->
+  <script>
+    // Password Show/Hide Toggle
+    const passwordInput = document.getElementById('password-input');
+    const togglePasswordBtn = document.getElementById('toggle-password');
+    const eyeOffIcon = document.getElementById('eye-off-icon');
+    const eyeOnIcon = document.getElementById('eye-on-icon');
+
+    togglePasswordBtn.addEventListener('click', () => {
+      const isPassword = passwordInput.type === 'password';
+      passwordInput.type = isPassword ? 'text' : 'password';
+      eyeOffIcon.classList.toggle('hidden', isPassword);
+      eyeOnIcon.classList.toggle('hidden', !isPassword);
+    });
+
+    // Language Selector Dropdown
+    const langBtn = document.getElementById('lang-btn');
+    const langMenu = document.getElementById('lang-menu');
+    const selectedLang = document.getElementById('selected-lang');
+
+    langBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      langMenu.classList.toggle('hidden');
+    });
+
+    function selectLang(lang) {
+      selectedLang.textContent = lang;
+      langMenu.classList.add('hidden');
+    }
+
+    document.addEventListener('click', () => {
+      langMenu.classList.add('hidden');
+    });
+  </script>
+
+</body>
+</html>

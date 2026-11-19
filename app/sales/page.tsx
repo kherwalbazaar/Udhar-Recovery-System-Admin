@@ -652,7 +652,7 @@ export default function AddSalePage() {
   const addToCart = (product: Product) => {
     sessionTouchedRef.current = true;
     if (!activeBillIdRef.current) {
-      showToast("warning", "Please click '+ Add Bill' to start a bill first.");
+      showToast("warning", "Please click 'Add Bill' to start a bill first.");
       handleStartAddBill();
       return;
     }
@@ -1692,7 +1692,7 @@ export default function AddSalePage() {
                   className="inline-flex items-center gap-1 rounded-lg border border-dashed border-blue-500 bg-blue-50 px-3 py-1.5 text-xs font-bold text-blue-700 transition hover:bg-blue-100 active:scale-95"
                 >
                   <Plus className="h-3.5 w-3.5" />
-                  <span>+ Add Bill</span>
+                  <span>Add Bill</span>
                 </button>
               </div>
             </div>

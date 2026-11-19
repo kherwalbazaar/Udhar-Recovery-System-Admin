@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Udhar Recovery System Dashboard</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    body {
+      font-family: 'Inter', sans-serif;
+    }
+    .db-glow {
+      box-shadow: 0 0 35px rgba(255, 255, 255, 0.9), 0 0 70px rgba(56, 189, 248, 0.85);
+    }
+    .banner-shadow {
+      box-shadow: 0 8px 25px rgba(3, 105, 161, 0.35), inset 0 1px 1px rgba(255, 255, 255, 0.4);
+    }
+    .card-shadow {
+      box-shadow: 0 10px 25px -5px rgba(2, 132, 199, 0.22), 0 4px 10px -2px rgba(2, 132, 199, 0.12);
+    }
+    .action-btn-shadow {
+      box-shadow: 0 10px 20px -4px rgba(0, 0, 0, 0.25), inset 0 1px 1px rgba(255, 255, 255, 0.45);
+    }
+  </style>
+</head>
+<body class="min-h-screen w-full overflow-x-hidden bg-gradient-to-b from-[#29b6f6] via-[#7dd3fc] to-[#e0f2fe] text-slate-800 select-none">
+
+  <!-- Background Financial Grid, Bar Chart, Trend Line & Skyline Vector Layer -->
+  <div class="pointer-events-none fixed inset-0 z-0 overflow-hidden">
+    <!-- Subtle Square Grid -->
+    <svg class="h-full w-full opacity-35" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <pattern id="dashboard-grid" width="44" height="44" patternUnits="userSpaceOnUse">
+          <path d="M 44 0 L 0 0 0 44" fill="none" stroke="#ffffff" stroke-width="1" />
+        </pattern>
+      </defs>
+      <rect width="100%" height="100%" fill="url(#dashboard-grid)" />
+    </svg>
+
+    <!-- Financial Bars & Trend Line -->
+    <svg class="absolute inset-0 h-full w-full" viewBox="0 0 1440 800" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
+      <!-- Vertical Translucent Bars -->
+      <g fill="#ffffff" fill-opacity="0.22">
+        <rect x="80" y="420" width="24" height="160" rx="2" />
+        <rect x="120" y="370" width="24" height="210" rx="2" />
+        <rect x="160" y="405" width="24" height="175" rx="2" />
+        <rect x="200" y="355" width="24" height="225" rx="2" />
+        <rect x="240" y="390" width="24" height="190" rx="2" />
+        <rect x="280" y="430" width="24" height="150" rx="2" />
+
+        <rect x="1030" y="420" width="24" height="160" rx="2" />
+        <rect x="1070" y="390" width="24" height="190" rx="2" />
+        <rect x="1110" y="410" width="24" height="170" rx="2" />
+        <rect x="1150" y="370" width="24" height="210" rx="2" />
+        <rect x="1190" y="340" width="24" height="240" rx="2" />
+        <rect x="1230" y="365" width="24" height="215" rx="2" />
+        <rect x="1270" y="330" width="24" height="250" rx="2" />
+        <rect x="1310" y="300" width="24" height="280" rx="2" />
+        <rect x="1350" y="325" width="24" height="255" rx="2" />
+        <rect x="1390" y="285" width="24" height="295" rx="2" />
+      </g>
+
+      <!-- Glowing White Financial Trend Line -->
+      <polyline
+        fill="none"
+        stroke="#ffffff"
+        stroke-width="3"
+        stroke-opacity="0.9"
+        points="60,500 200,445 280,465 550,395 750,415 975,435 1190,360 1370,285 1440,320"
+      />
+
+      <!-- Data Point Circles -->
+      <circle cx="200" cy="445" r="6" fill="#ffffff" />
+      <circle cx="280" cy="465" r="6" fill="#ffffff" />
+      <circle cx="550" cy="395" r="7" fill="#ffffff" />
+      <circle cx="975" cy="435" r="6" fill="#ffffff" />
+      <circle cx="1190" cy="360" r="6" fill="#ffffff" />
+      <circle cx="1370" cy="285" r="7" fill="#ffffff" />
+    </svg>
+
+    <!-- Blue-Tinted City Skyline & Water Reflection -->
+    <div class="absolute inset-x-0 bottom-0 flex flex-col">
+      <!-- Skyline Silhouette SVG -->
+      <svg class="h-52 w-full text-[#4ba3e3]/55" viewBox="0 0 1440 220" preserveAspectRatio="none" fill="currentColor">
+        <path d="M0,220 L0,165 L25,165 L25,135 L55,135 L55,170 L85,170 L85,115 L120,115 L120,150 L150,150 L150,125 L185,125 L185,165 L220,165 L220,140 L260,140 L260,105 L295,105 L295,155 L330,155 L330,120 L375,120 L375,160 L410,160 L410,95 L445,95 L445,75 L465,75 L465,95 L485,95 L485,145 L520,145 L520,115 L560,115 L560,155 L600,155 L600,130 L645,130 L645,165 L685,165 L685,110 L730,110 L730,150 L775,150 L775,125 L820,125 L820,165 L865,165 L865,100 L905,100 L905,145 L950,145 L950,120 L995,120 L995,155 L1035,155 L1035,85 L1065,65 L1095,85 L1095,140 L1135,140 L1135,110 L1180,110 L1180,155 L1225,155 L1225,125 L1270,125 L1270,160 L1315,160 L1315,115 L1365,115 L1365,150 L1410,150 L1410,130 L1440,130 L1440,220 Z" />
+        <!-- Foreground Darker Buildings Layer -->
+        <path class="text-[#1d75bd]/50" d="M0,220 L0,185 L45,185 L45,155 L95,155 L95,180 L140,180 L140,145 L195,145 L195,185 L245,185 L245,160 L300,160 L300,190 L355,190 L355,140 L415,140 L415,175 L475,175 L475,150 L535,150 L535,185 L595,185 L595,160 L660,160 L660,190 L725,190 L725,145 L790,145 L790,180 L855,180 L855,155 L920,155 L920,185 L985,185 L985,135 L1055,135 L1055,175 L1120,175 L1120,150 L1185,150 L1185,185 L1250,185 L1250,155 L1320,155 L1320,185 L1390,185 L1390,165 L1440,165 L1440,220 Z" />
+      </svg>
+      <!-- Waterline & Reflection Gradient -->
+      <div class="h-28 w-full border-t-2 border-white/60 bg-gradient-to-b from-[#38bdf8]/40 via-[#7dd3fc]/55 to-[#bae6fd]/80 backdrop-blur-[1px]"></div>
+    </div>
+  </div>
+
+  <!-- Main Full-Width Content Shell (No Sidebar) -->
+  <div class="relative z-10 mx-auto flex min-h-screen w-full max-w-[1440px] flex-col justify-between p-3 sm:p-5">
+
+    <!-- Top Section: Header + Horizontal Navigation Bar Below Header + KPI Cards -->
+    <div>
+      <!-- Header Row: Brand/Title Banner + User Profile -->
+      <header class="relative flex flex-col items-center justify-between gap-4 lg:flex-row">
+        <!-- Left Brand Badge -->
+        <div class="flex items-center gap-2.5 self-start rounded-full border border-white/35 bg-gradient-to-r from-[#074173]/95 to-[#0c5694]/95 px-4 py-2 text-white shadow-lg backdrop-blur-md lg:self-center">
+          <svg class="h-6 w-6 shrink-0" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M8 27L20 17L29 24.5C30.8 26 33.2 26 35 24.5L44 17L56 27L47 36.5L34.5 47C33.1 48.2 30.9 48.2 29.5 47L17 36.5L8 27Z" stroke="#ffffff" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M24 31L30 36M28 27L34 32M32 23L38 28" stroke="#4ade80" stroke-width="3.4" stroke-linecap="round"/>
+          </svg>
+          <span class="text-sm font-extrabold tracking-tight whitespace-nowrap">Udhar Recovery</span>
+        </div>
+
+        <!-- Center Title Pill Banner -->
+        <div class="banner-shadow mx-auto w-full max-w-3xl rounded-full border border-white/30 bg-gradient-to-r from-[#075985] via-[#0369a1] to-[#075985] px-8 py-3 text-center text-white">
+          <h1 class="text-xl font-extrabold tracking-wide uppercase drop-shadow sm:text-2xl md:text-[26px]">
+            UDHAR RECOVERY SYSTEM DASHBOARD
+          </h1>
+          <div class="mt-1 flex items-center justify-center gap-3">
+            <span class="hidden h-[1px] w-12 bg-sky-300/60 sm:inline-block"></span>
+            <p class="text-xs font-medium italic tracking-wide text-sky-100 sm:text-sm">
+              Real-Time Financial Tracking &amp; Collection Management
+            </p>
+            <span class="hidden h-[1px] w-12 bg-sky-300/60 sm:inline-block"></span>
+          </div>
+        </div>
+
+        <!-- Top-Right Admin Profile -->
+        <div class="flex items-center gap-2.5 self-end lg:self-center">
+          <div class="flex h-11 w-11 items-center justify-center rounded-full border-2 border-white bg-sky-100 shadow-md overflow-hidden">
+            <svg class="h-10 w-10" viewBox="0 0 36 36" fill="none">
+              <circle cx="18" cy="18" r="18" fill="#e0f2fe"/>
+              <circle cx="18" cy="13" r="6" fill="#fed7aa"/>
+              <path d="M12 12C12 8.5 14.5 6.5 18 6.5C21.5 6.5 24 8.5 24 12C24 10 21.5 9 18 9C14.5 9 12 10 12 12Z" fill="#1e293b"/>
+              <path d="M8 33C8 26.5 12.5 23 18 23C23.5 23 28 26.5 28 33" fill="#0369a1"/>
+              <path d="M16 23L18 29L20 23" fill="#ffffff"/>
+            </svg>
+          </div>
+          <div class="text-left leading-tight text-white drop-shadow-sm">
+            <div class="flex items-center gap-1 text-sm font-bold">
+              <span>Admin</span>
+              <svg class="h-3.5 w-3.5" fill="currentColor" viewBox="0 0 20 20">
+                <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
+              </svg>
+            </div>
+            <p class="text-[11px] font-medium text-sky-50">Super Admin</p>
+          </div>
+        </div>
+      </header>
+
+      <!-- Horizontal Navigation Menu Bar Directly Below Header -->
+      <nav aria-label="Primary Navigation" class="mt-4 rounded-2xl border border-white/40 bg-gradient-to-r from-[#074173]/95 via-[#0c5694]/95 to-[#074173]/95 p-1.5 text-white shadow-xl backdrop-blur-md">
+        <ul class="flex flex-wrap items-center justify-between gap-1">
+          <!-- Dashboard (Active) -->
+          <li>
+            <a href="#dashboard" class="flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-[#0284c7] to-[#38bdf8] px-3.5 py-2 text-xs font-bold text-white shadow-md border border-white/30 whitespace-nowrap sm:text-sm">
+              <span>Dashboard</span>
+            </a>
+          </li>
+
+          <!-- Products -->
+          <li>
+            <a href="#products" class="flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-semibold text-sky-100 hover:bg-white/15 hover:text-white transition whitespace-nowrap sm:text-sm">
+              <span>Products</span>
+            </a>
+          </li>
+
+          <!-- Sales -->
+          <li>
+            <a href="#sales" class="flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-semibold text-sky-100 hover:bg-white/15 hover:text-white transition whitespace-nowrap sm:text-sm">
+              <span>Sales</span>
+            </a>
+          </li>
+
+          <!-- Reports -->
+          <li>
+            <a href="#reports" class="flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-semibold text-sky-100 hover:bg-white/15 hover:text-white transition whitespace-nowrap sm:text-sm">
+              <span>Reports</span>
+            </a>
+          </li>
+
+          <!-- Khata -->
+          <li>
+            <a href="#khata" class="flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-semibold text-sky-100 hover:bg-white/15 hover:text-white transition whitespace-nowrap sm:text-sm">
+              <span>Khata</span>
+            </a>
+          </li>
+
+          <!-- Suppliers -->
+          <li>
+            <a href="#suppliers" class="flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-semibold text-sky-100 hover:bg-white/15 hover:text-white transition whitespace-nowrap sm:text-sm">
+              <span>Suppliers</span>
+            </a>
+          </li>
+
+          <!-- Cash Book -->
+          <li>
+            <a href="#cash-book" class="flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-semibold text-sky-100 hover:bg-white/15 hover:text-white transition whitespace-nowrap sm:text-sm">
+              <span>Cash Book</span>
+            </a>
+          </li>
+
+          <!-- Reminders -->
+          <li>
+            <a href="#reminders" class="flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-semibold text-sky-100 hover:bg-white/15 hover:text-white transition whitespace-nowrap sm:text-sm">
+              <span>Reminders</span>
+              <span class="flex h-4 w-4 items-center justify-center rounded-full bg-red-600 text-[10px] font-bold text-white shadow">3</span>
+            </a>
+          </li>
+
+          <!-- Settings -->
+          <li>
+            <a href="#settings" class="flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-semibold text-sky-100 hover:bg-white/15 hover:text-white transition whitespace-nowrap sm:text-sm">
+              <span>Settings</span>
+            </a>
+          </li>
+
+          <!-- Finance (Expandable Menu) -->
+          <li class="relative" id="finance-menu-container">
+            <button
+              type="button"
+              id="finance-menu-btn"
+              aria-expanded="false"
+              aria-controls="finance-dropdown"
+              class="flex items-center gap-1.5 rounded-xl border border-white/25 bg-white/10 px-3.5 py-2 text-xs font-bold text-white hover:bg-white/20 transition whitespace-nowrap sm:text-sm"
+            >
+              <span>Finance</span>
+              <svg id="finance-chevron" class="h-4 w-4 transition-transform duration-200" fill="none" stroke="currentColor" stroke-width="2.4" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+
+            <!-- Dropdown Submenu -->
+            <div
+              id="finance-dropdown"
+              class="absolute right-0 mt-2 w-48 origin-top-right rounded-xl border border-sky-200/80 bg-white/95 p-1.5 text-slate-800 shadow-2xl backdrop-blur-md hidden z-30"
+            >
+              <a href="#finance-payments" class="flex items-center rounded-lg px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-sky-50 hover:text-[#0369a1] transition sm:text-sm">
+                Payments
+              </a>
+              <a href="#finance-expenses" class="flex items-center rounded-lg px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-sky-50 hover:text-[#0369a1] transition sm:text-sm">
+                Expenses
+              </a>
+              <a href="#finance-profit-loss" class="flex items-center rounded-lg px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-sky-50 hover:text-[#0369a1] transition sm:text-sm">
+                Profit &amp; Loss
+              </a>
+              <a href="#finance-analytics" class="flex items-center rounded-lg px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-sky-50 hover:text-[#0369a1] transition sm:text-sm">
+                Analytics
+              </a>
+            </div>
+          </li>
+        </ul>
+      </nav>
+
+      <!-- 4 KPI Summary Cards Row -->
+      <section class="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <!-- Card 1: Total Customers -->
+        <div class="card-shadow relative flex items-center gap-4 overflow-hidden rounded-2xl border border-white bg-white/95 p-4 backdrop-blur-md">
+          <div class="absolute inset-y-0 left-0 w-1.5 bg-[#0284c7]"></div>
+          <div class="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#38bdf8] to-[#0284c7] text-white shadow-md">
+            <svg class="h-7 w-7" fill="currentColor" viewBox="0 0 20 20">
+              <path d="M13 6a3 3 0 11-6 0 3 3 0 016 0zM18 8a2 2 0 11-4 0 2 2 0 014 0zM14 15a4 4 0 00-8 0v3h8v-3zM6 8a2 2 0 11-4 0 2 2 0 014 0zM16 18v-3a5.972 5.972 0 00-.75-2.906A3.005 3.005 0 0119 15v3h-3zM4.75 12.094A5.973 5.973 0 004 15v3H1v-3a3 3 0 013.75-2.906z" />
+            </svg>
+          </div>
+          <div class="flex-1">
+            <p class="text-xs font-bold text-[#0c4a6e]">Total Customers</p>
+            <p class="mt-0.5 text-2xl font-extrabold text-[#0c4a6e]">245</p>
+            <p class="mt-1 flex items-center justify-end gap-1 text-xs font-bold text-emerald-600">
+              <span>↑</span><span>+12%</span>
+            </p>
+          </div>
+        </div>
+
+        <!-- Card 2: Total Due Amount -->
+        <div class="card-shadow relative flex items-center gap-4 overflow-hidden rounded-2xl border border-white bg-white/95 p-4 backdrop-blur-md">
+          <div class="absolute inset-y-0 left-0 w-1.5 bg-[#16a34a]"></div>
+          <div class="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#4ade80] to-[#15803d] text-white shadow-md">
+            <span class="text-2xl font-extrabold">₹</span>
+          </div>
+          <div class="flex-1">
+            <p class="text-xs font-bold text-[#0c4a6e]">Total Due Amount</p>
+            <p class="mt-0.5 text-2xl font-extrabold text-[#15803d]">₹1,25,480</p>
+            <p class="mt-1 flex items-center justify-end gap-1 text-xs font-bold text-emerald-600">
+              <span>↑</span><span>+8%</span>
+            </p>
+          </div>
+        </div>
+
+        <!-- Card 3: Collected Today -->
+        <div class="card-shadow relative flex items-center gap-4 overflow-hidden rounded-2xl border border-white bg-white/95 p-4 backdrop-blur-md">
+          <div class="absolute inset-y-0 left-0 w-1.5 bg-[#e11d48]"></div>
+          <div class="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#fb7185] to-[#e11d48] text-white shadow-md">
+            <svg class="h-7 w-7" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+            </svg>
+          </div>
+          <div class="flex-1">
+            <p class="text-xs font-bold text-[#0c4a6e]">Collected Today</p>
+            <p class="mt-0.5 text-2xl font-extrabold text-[#e11d48]">₹32,750</p>
+            <p class="mt-1 flex items-center justify-end gap-1 text-xs font-bold text-emerald-600">
+              <span>↑</span><span>+15%</span>
+            </p>
+          </div>
+        </div>
+
+        <!-- Card 4: Pending Recovery -->
+        <div class="card-shadow relative flex items-center gap-4 overflow-hidden rounded-2xl border border-white bg-white/95 p-4 backdrop-blur-md">
+          <div class="absolute inset-y-0 left-0 w-1.5 bg-[#7c3aed]"></div>
+          <div class="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#a78bfa] to-[#6d28d9] text-white shadow-md">
+            <svg class="h-7 w-7" fill="currentColor" viewBox="0 0 20 20">
+              <path fill-rule="evenodd" d="M6 2a1 1 0 00-1 1v1H4a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-1V3a1 1 0 10-2 0v1H7V3a1 1 0 00-1-1zm0 5a1 1 0 000 2h8a1 1 0 100-2H6z" clip-rule="evenodd" />
+            </svg>
+          </div>
+          <div class="flex-1">
+            <p class="text-xs font-bold text-[#0c4a6e]">Pending Recovery</p>
+            <p class="mt-0.5 text-2xl font-extrabold text-[#6d28d9]">₹92,730</p>
+            <p class="mt-1 flex items-center justify-end gap-1 text-xs font-bold text-red-600">
+              <span>↓</span><span>-3%</span>
+            </p>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <!-- Center Visual: Glowing Central Database Node -->
+    <div class="my-8 flex flex-col items-center justify-center">
+      <div class="db-glow flex h-24 w-24 items-center justify-center rounded-full border-4 border-white bg-gradient-to-b from-[#38bdf8] to-[#0284c7] p-3">
+        <svg class="h-12 w-12 text-white" fill="currentColor" viewBox="0 0 24 24">
+          <path d="M12 3C7.58 3 4 4.79 4 7s3.58 4 8 4 8-1.79 8-4-3.58-4-8-4zm8 6c0 2.21-3.58 4-8 4s-8-1.79-8-4v3c0 2.21 3.58 4 8 4s8-1.79 8-4V9zm0 5c0 2.21-3.58 4-8 4s-8-1.79-8-4v3c0 2.21 3.58 4 8 4s8-1.79 8-4v-3z" />
+        </svg>
+      </div>
+      <span class="mt-2.5 text-base font-extrabold tracking-wide text-white drop-shadow-[0_2px_6px_rgba(3,105,161,0.85)]">
+        Central Database
+      </span>
+    </div>
+
+    <!-- Bottom Quick Action Buttons Bar -->
+    <footer class="mx-auto w-full max-w-5xl pb-2">
+      <div class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+        <!-- Button 1: New Entry -->
+        <button class="action-btn-shadow flex items-center justify-center gap-2.5 rounded-xl border border-white/50 bg-gradient-to-b from-[#22c55e] to-[#15803d] px-4 py-3.5 text-sm font-bold text-white transition hover:brightness-110 active:scale-95">
+          <svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2.8" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
+          </svg>
+          <span>New Entry</span>
+        </button>
+
+        <!-- Button 2: View Reports -->
+        <button class="action-btn-shadow flex items-center justify-center gap-2.5 rounded-xl border border-white/50 bg-gradient-to-b from-[#38bdf8] to-[#0284c7] px-4 py-3.5 text-sm font-bold text-white transition hover:brightness-110 active:scale-95">
+          <svg class="h-5 w-5" fill="currentColor" viewBox="0 0 20 20">
+            <path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zM8 7a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zM14 4a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z" />
+          </svg>
+          <span>View Reports</span>
+        </button>
+
+        <!-- Button 3: Set Reminder -->
+        <button class="action-btn-shadow flex items-center justify-center gap-2.5 rounded-xl border border-white/50 bg-gradient-to-b from-[#fb7185] to-[#e11d48] px-4 py-3.5 text-sm font-bold text-white transition hover:brightness-110 active:scale-95">
+          <svg class="h-5 w-5" fill="currentColor" viewBox="0 0 20 20">
+            <path d="M10 2a6 6 0 00-6 6v3.586l-.707.707A1 1 0 004 14h12a1 1 0 00.707-1.707L16 11.586V8a6 6 0 00-6-6zM10 18a3 3 0 01-3-3h6a3 3 0 01-3 3z" />
+          </svg>
+          <span>Set Reminder</span>
+        </button>
+
+        <!-- Button 4: Print Bill -->
+        <button class="action-btn-shadow flex items-center justify-center gap-2.5 rounded-xl border border-white/50 bg-gradient-to-b from-[#2dd4bf] to-[#0f766e] px-4 py-3.5 text-sm font-bold text-white transition hover:brightness-110 active:scale-95">
+          <svg class="h-5 w-5" fill="currentColor" viewBox="0 0 20 20">
+            <path fill-rule="evenodd" d="M5 4v3H4a2 2 0 00-2 2v3a2 2 0 002 2h1v2a2 2 0 002 2h6a2 2 0 002-2v-2h1a2 2 0 002-2V9a2 2 0 00-2-2h-1V4a2 2 0 00-2-2H7a2 2 0 00-2 2zm8 0H7v3h6V4zm0 8H7v4h6v-4z" clip-rule="evenodd" />
+          </svg>
+          <span>Print Bill</span>
+        </button>
+
+        <!-- Button 5: Export Data -->
+        <button class="action-btn-shadow col-span-2 sm:col-span-1 flex items-center justify-center gap-2.5 rounded-xl border border-white/50 bg-gradient-to-b from-[#a78bfa] to-[#6d28d9] px-4 py-3.5 text-sm font-bold text-white transition hover:brightness-110 active:scale-95">
+          <svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5m0 0l5-5m-5 5V3" />
+          </svg>
+          <span>Export Data</span>
+        </button>
+      </div>
+    </footer>
+
+  </div>
+
+  <!-- Expandable Finance Menu Script -->
+  <script>
+    const financeBtn = document.getElementById('finance-menu-btn');
+    const financeDropdown = document.getElementById('finance-dropdown');
+    const financeChevron = document.getElementById('finance-chevron');
+    const financeContainer = document.getElementById('finance-menu-container');
+
+    financeBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const isOpen = !financeDropdown.classList.contains('hidden');
+      financeDropdown.classList.toggle('hidden', isOpen);
+      financeChevron.classList.toggle('rotate-180', !isOpen);
+      financeBtn.setAttribute('aria-expanded', String(!isOpen));
+    });
+
+    document.addEventListener('click', (e) => {
+      if (!financeContainer.contains(e.target)) {
+        financeDropdown.classList.add('hidden');
+        financeChevron.classList.remove('rotate-180');
+        financeBtn.setAttribute('aria-expanded', 'false');
+      }
+    });
+  </script>
+
+</body>
+</html>

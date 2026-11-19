@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { onValue, push, ref, set, update } from "firebase/database";
@@ -52,6 +52,17 @@ const DEFAULT_CATEGORIES = [
   "ESSA", "GALAXY", "KOLKATA", "Stroberry", "SK Dreams", "Rupa Footline",
   "UR Image", "LUX", "Lungi", "Saree", "Half Pants", "Ganji",
 ];
+
+type EditableColumn = "name" | "purchase" | "barcode" | "mrp" | "sale" | "size";
+
+const editableColumns: Record<EditableColumn, { label: string; numeric: boolean }> = {
+  name: { label: "Product name", numeric: false },
+  purchase: { label: "Purchase price", numeric: true },
+  barcode: { label: "Barcode", numeric: false },
+  mrp: { label: "MRP", numeric: true },
+  sale: { label: "Sale price", numeric: true },
+  size: { label: "Size", numeric: false },
+};
 
 function parseCsv(text: string): string[][] {
   const rows: string[][] = [];
@@ -155,9 +166,11 @@ export default function ProductPage() {
   const [newRow, setNewRow] = useState({ name: "", purchase: "", barcode: "", mrp: "", sale: "", size: "" });
   const [newRowError, setNewRowError] = useState<string | null>(null);
   const [savingNewRow, setSavingNewRow] = useState(false);
-  const [inlineEditingName, setInlineEditingName] = useState<string | null>(null);
-  const [inlineEditRow, setInlineEditRow] = useState({ name: "", purchase: "", barcode: "", mrp: "", sale: "", size: "" });
-  const [savingInlineEdit, setSavingInlineEdit] = useState(false);
+  const [editingCell, setEditingCell] = useState<{ name: string; field: EditableColumn } | null>(null);
+  const [cellDraft, setCellDraft] = useState("");
+  const [savingCell, setSavingCell] = useState<string | null>(null);
+  const [cellError, setCellError] = useState<{ key: string; message: string } | null>(null);
+  const skipCellSaveRef = useRef(false);
   const [categories, setCategories] = useState(DEFAULT_CATEGORIES);
   const [newCategoryOpen, setNewCategoryOpen] = useState(false);
   const [newCategory, setNewCategory] = useState("");
@@ -464,57 +477,151 @@ export default function ProductPage() {
     }
   };
 
-  const startInlineEdit = (product: ProductWithSales) => {
-    const record = allProducts.find((item) => item.name === product.name);
-    setInlineEditingName(product.name);
-    setNewRowError(null);
-    setInlineEditRow({
-      name: product.name,
-      purchase: String(product.cost ?? record?.cost ?? ""),
-      barcode: product.barcode ?? record?.barcode ?? "",
-      mrp: String(product.mrp),
-      sale: String(product.sale ?? record?.sale ?? ""),
-      size: record?.unit ?? product.unit ?? "",
-    });
+  const productRecordFor = (name: string) =>
+    allProducts.find((item) => item.name === name);
+
+  const cellValueFor = (product: ProductWithSales, field: EditableColumn): string => {
+    const record = productRecordFor(product.name);
+    switch (field) {
+      case "name":
+        return product.name;
+      case "purchase":
+        return product.cost != null ? String(product.cost) : record?.cost != null ? String(record.cost) : "";
+      case "barcode":
+        return product.barcode ?? record?.barcode ?? "";
+      case "mrp":
+        return product.mrp ? String(product.mrp) : "";
+      case "sale":
+        return product.sale != null ? String(product.sale) : record?.sale != null ? String(record.sale) : "";
+      case "size":
+        return record?.unit ?? product.unit ?? "";
+      default:
+        return "";
+    }
   };
 
-  const saveInlineEdit = async (product: ProductWithSales) => {
-    const productName = inlineEditRow.name.trim();
-    const mrpValue = Number(inlineEditRow.mrp);
-    const saleValue = Number(inlineEditRow.sale);
-    const purchaseValue = inlineEditRow.purchase === "" ? undefined : Number(inlineEditRow.purchase);
-    if (!productName) return setNewRowError("Product name is required.");
-    if (/[.#$\[\]\/]/.test(productName)) return setNewRowError("Product name cannot contain . # $ / or brackets.");
-    if (productName !== product.name && allProducts.some((item) => item.name.toLowerCase() === productName.toLowerCase())) return setNewRowError("A product with this name already exists.");
-    if (!Number.isFinite(mrpValue) || mrpValue <= 0 || !Number.isFinite(saleValue) || saleValue <= 0) return setNewRowError("Enter valid MRP and sale prices greater than zero.");
-    if (purchaseValue !== undefined && (!Number.isFinite(purchaseValue) || purchaseValue < 0)) return setNewRowError("Enter a valid purchase price.");
-    setSavingInlineEdit(true);
-    setNewRowError(null);
+  const beginCellEdit = (product: ProductWithSales, field: EditableColumn) => {
+    if (savingCell) return;
+    skipCellSaveRef.current = false;
+    setCellError(null);
+    setEditingCell({ name: product.name, field });
+    setCellDraft(cellValueFor(product, field));
+  };
+
+  const cancelCellEdit = () => {
+    skipCellSaveRef.current = true;
+    setEditingCell(null);
+    setCellError(null);
+  };
+
+  const commitCellEdit = async () => {
+    if (skipCellSaveRef.current) {
+      skipCellSaveRef.current = false;
+      return;
+    }
+
+    const cell = editingCell;
+    if (!cell) return;
+    const { name, field } = cell;
+    setEditingCell(null);
+    setCellError(null);
+
+    const product = productList.find((item) => item.name === name);
+    const existing = productRecordFor(name);
+    if (!product || !existing) return;
+
+    const draft = cellDraft.trim();
+    if (draft === cellValueFor(product, field).trim()) return;
+
+    const cellKey = `${name}|${field}`;
+    const fail = (message: string) => {
+      setCellError({ key: cellKey, message });
+      showToast("error", message);
+    };
+
+    const next: ProductRecord = { ...existing, name, origin: "catalog" };
+
+    switch (field) {
+      case "name": {
+        if (!draft) return fail("Product name is required.");
+        if (/[.#$\[\]\/]/.test(draft)) return fail("Product name cannot contain . # $ / or brackets.");
+        if (
+          draft.toLowerCase() !== name.toLowerCase() &&
+          allProducts.some((item) => item.name.toLowerCase() === draft.toLowerCase())
+        ) {
+          return fail("A product with this name already exists.");
+        }
+        next.name = draft;
+        break;
+      }
+      case "purchase": {
+        if (draft === "") {
+          delete next.cost;
+          break;
+        }
+        const value = Number(draft);
+        if (!Number.isFinite(value) || value < 0) return fail("Enter a valid purchase price.");
+        next.cost = value;
+        break;
+      }
+      case "mrp": {
+        const value = Number(draft);
+        if (!Number.isFinite(value) || value <= 0) return fail("Enter a valid MRP greater than zero.");
+        next.mrp = value;
+        break;
+      }
+      case "sale": {
+        if (draft === "") {
+          delete next.sale;
+          break;
+        }
+        const value = Number(draft);
+        if (!Number.isFinite(value) || value < 0) return fail("Enter a valid sale price.");
+        next.sale = value;
+        break;
+      }
+      case "barcode": {
+        if (draft) next.barcode = draft;
+        else delete next.barcode;
+        break;
+      }
+      case "size": {
+        if (draft) next.unit = draft;
+        else delete next.unit;
+        break;
+      }
+      default:
+        break;
+    }
+
+    setSavingCell(cellKey);
     try {
-      const existing = allProducts.find((item) => item.name === product.name);
-      const record: ProductRecord = {
-        ...existing,
-        name: productName,
-        origin: "catalog",
-        barcode: inlineEditRow.barcode.trim() || undefined,
-        mrp: mrpValue,
-        sale: saleValue,
-        cost: purchaseValue,
-        unit: inlineEditRow.size.trim() || undefined,
-        active: existing?.active ?? true,
-        trackStock: existing?.trackStock ?? true,
-        createdAt: existing?.createdAt ?? Date.now(),
-      };
-      await updateProduct(product.name, record);
-      setInlineEditingName(null);
-      setProductList((current) => current.map((item) => item.name === product.name ? { ...item, name: productName, barcode: record.barcode, mrp: mrpValue, sale: saleValue, cost: purchaseValue, unit: record.unit, inCatalog: true } : item));
-      setAllProducts((current) => [...current.filter((item) => item.name !== product.name), record]);
-      showToast("success", `${productName} updated successfully!`);
-      refreshList();
+      await updateProduct(name, next);
+      setProductList((current) =>
+        current.map((item) =>
+          item.name === name
+            ? {
+                ...item,
+                name: next.name,
+                barcode: next.barcode,
+                mrp: next.mrp,
+                sale: next.sale,
+                cost: next.cost,
+                unit: next.unit,
+              }
+            : item
+        )
+      );
+      setAllProducts((current) => [
+        ...current.filter((item) => item.name !== name),
+        next,
+      ]);
+      showToast("success", `${next.name} updated.`);
     } catch (saveError) {
-      setNewRowError(saveError instanceof Error ? saveError.message : "Could not update this product.");
+      fail(saveError instanceof Error ? saveError.message : "Could not save this change.");
+      refreshList();
     } finally {
-      setSavingInlineEdit(false);
+      setSavingCell(null);
     }
   };
 
@@ -827,18 +934,65 @@ export default function ProductPage() {
     }
   };
 
-  const inlineInput = (key: keyof typeof inlineEditRow, label: string, numeric = false) => (
-    <input
-      aria-label={label}
-      type={numeric ? "number" : "text"}
-      min={numeric ? "0" : undefined}
-      step={numeric ? "0.01" : undefined}
-      value={inlineEditRow[key]}
-      onChange={(event) => setInlineEditRow((row) => ({ ...row, [key]: event.target.value }))}
-      onKeyDown={(event) => { if (event.key === "Escape") { setInlineEditingName(null); setNewRowError(null); } }}
-      className="w-full min-w-20 bg-yellow-200 px-2 py-2 text-xs outline-none focus:bg-yellow-100 focus:ring-1 focus:ring-inset focus:ring-blue-500"
-    />
-  );
+  const editableCell = (
+    product: ProductWithSales,
+    field: EditableColumn,
+    content: ReactNode,
+    className = ""
+  ) => {
+    const isEditing = editingCell?.name === product.name && editingCell.field === field;
+    const cellKey = `${product.name}|${field}`;
+    const config = editableColumns[field];
+    const error = cellError?.key === cellKey ? cellError.message : null;
+
+    return (
+      <td
+        className={`border border-slate-200 p-0 align-top ${className}`}
+        onDoubleClick={(event) => {
+          event.stopPropagation();
+          beginCellEdit(product, field);
+        }}
+        title={isEditing ? undefined : "Double-click to edit"}
+      >
+        {isEditing ? (
+          <input
+            autoFocus
+            aria-label={config.label}
+            type={config.numeric ? "number" : "text"}
+            min={config.numeric ? "0" : undefined}
+            step={config.numeric ? "0.01" : undefined}
+            value={cellDraft}
+            onChange={(event) => setCellDraft(event.target.value)}
+            onFocus={(event) => event.currentTarget.select()}
+            onBlur={() => void commitCellEdit()}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                event.currentTarget.blur();
+              } else if (event.key === "Escape") {
+                event.preventDefault();
+                cancelCellEdit();
+                event.currentTarget.blur();
+              }
+            }}
+            className={`w-full min-w-20 bg-yellow-100 px-2 py-2 text-xs outline-none ring-1 ring-inset ring-blue-500 ${
+              config.numeric ? "text-right" : ""
+            }`}
+          />
+        ) : (
+          <span className="block cursor-text px-3 py-2">{content}</span>
+        )}
+        {error && (
+          <span className="block max-w-56 px-2 pb-1 text-[10px] font-semibold leading-tight text-red-600">
+            {error}
+          </span>
+        )}
+        {savingCell === cellKey && (
+          <span className="block px-2 pb-1 text-[10px] font-semibold text-blue-600">Saving...</span>
+        )}
+      </td>
+    );
+  };
   const missingDataCell = <span title="No data available" aria-label="No data available" className="font-bold text-amber-600">⚠</span>;
   return (
     <AppShell title="" active="Product">
@@ -1243,7 +1397,7 @@ export default function ProductPage() {
                 <th className="min-w-28 border border-slate-300 px-3 py-2 text-right font-semibold">MRP (₹)</th>
                 <th className="min-w-28 border border-slate-300 px-3 py-2 text-right font-semibold">Sale (₹)</th>
                 <th className="min-w-24 border border-slate-300 px-3 py-2 font-semibold">Size</th>
-                <th className="min-w-28 border border-slate-300 px-2 py-2 text-center font-semibold">Save/Update</th>
+                <th className="min-w-28 border border-slate-300 px-2 py-2 text-center font-semibold">Update</th>
                 <th className="min-w-20 border border-slate-300 px-2 py-2 text-center font-semibold">Delete</th>
                 <th className="min-w-28 border border-slate-300 px-2 py-2 text-center font-semibold">Barcode</th>
               </tr>
@@ -1395,37 +1549,71 @@ export default function ProductPage() {
               )}
               {!listLoading &&
                 !listError &&
-                filteredProductList.map((p) => (
-                  <tr
-                    key={p.name}
-                    className={`h-10 cursor-pointer ${inlineEditingName === p.name ? "!bg-yellow-300 hover:!bg-yellow-300" : "even:bg-slate-50 hover:bg-emerald-50"}`}
-                    onDoubleClick={() => startInlineEdit(p)}
-                  >
-                    <td className="sticky left-0 border border-slate-200 bg-inherit p-0 font-medium text-slate-800" title={inlineEditingName === p.name ? newRowError ?? undefined : undefined}>{inlineEditingName === p.name ? inlineInput("name", "Product name") : <span className="block px-3 py-2">{p.name}</span>}</td>
-                    <td className="border border-slate-200 p-0 text-right tabular-nums text-slate-700">{inlineEditingName === p.name ? inlineInput("purchase", "Purchase price", true) : <span className="block px-3 py-2">{(p.cost ?? allProducts.find((product) => product.name === p.name)?.cost) != null ? fmt((p.cost ?? allProducts.find((product) => product.name === p.name)?.cost)!) : missingDataCell}</span>}</td>
-                    <td className="border border-slate-200 p-0 text-slate-600">{inlineEditingName === p.name ? inlineInput("barcode", "Barcode") : <span className="block px-3 py-2">{(p.barcode ?? allProducts.find((product) => product.name === p.name)?.barcode)?.trim() || missingDataCell}</span>}</td>
-                    <td className="border border-slate-200 p-0 text-right tabular-nums text-slate-700">{inlineEditingName === p.name ? inlineInput("mrp", "MRP", true) : <span className="block px-3 py-2">{p.mrp > 0 ? fmt(p.mrp) : missingDataCell}</span>}</td>
-                    <td className="border border-slate-200 p-0 text-right tabular-nums text-slate-700">{inlineEditingName === p.name ? inlineInput("sale", "Sale price", true) : <span className="block px-3 py-2">{(p.sale ?? allProducts.find((product) => product.name === p.name)?.sale) != null ? fmt((p.sale ?? allProducts.find((product) => product.name === p.name)?.sale)!) : missingDataCell}</span>}</td>
-                    <td className="border border-slate-200 p-0 text-slate-600">{inlineEditingName === p.name ? inlineInput("size", "Size") : <span className="block px-3 py-2">{allProducts.find((product) => product.name === p.name)?.unit?.trim() || p.unit?.trim() || missingDataCell}</span>}</td>
-                    <td className="border border-slate-200 px-1 py-1" onClick={(e) => e.stopPropagation()}>
-                      {inlineEditingName === p.name ? <><button type="button" onClick={() => void saveInlineEdit(p)} disabled={savingInlineEdit} className="w-full border border-blue-700 bg-blue-600 px-2 py-1.5 text-[10px] font-semibold text-white hover:bg-blue-700 disabled:opacity-50">{savingInlineEdit ? "Saving..." : "Save"}</button>{newRowError && <span className="block max-w-28 pt-1 text-[10px] text-red-600">{newRowError}</span>}</> : <button type="button" onClick={() => startInlineEdit(p)} className="w-full border border-slate-300 bg-white px-2 py-1.5 text-[10px] font-semibold text-blue-700 hover:bg-blue-50">Update</button>}
-                    </td>
-                    <td className="border border-slate-200 px-1 py-1" onClick={(e) => e.stopPropagation()}>
-                      {p.inCatalog ? (
-                        <button type="button" onClick={() => handleDeleteList(p)} className="w-full border border-slate-300 bg-white px-2 py-1.5 text-[10px] font-semibold text-red-600 hover:bg-red-50">Delete</button>
-                      ) : (
-                        <button type="button" disabled className="w-full border border-slate-200 bg-slate-50 px-2 py-1.5 text-[10px] font-semibold text-slate-300">Delete</button>
+                filteredProductList.map((p) => {
+                  const record = productRecordFor(p.name);
+                  const purchase = p.cost ?? record?.cost;
+                  const salePrice = p.sale ?? record?.sale;
+                  const barcode = (p.barcode ?? record?.barcode ?? "").trim();
+                  const size = record?.unit?.trim() || p.unit?.trim() || "";
+
+                  return (
+                    <tr key={p.name} className="h-10 even:bg-slate-50 hover:bg-emerald-50">
+                      {editableCell(
+                        p,
+                        "name",
+                        p.name,
+                        "sticky left-0 bg-inherit font-medium text-slate-800"
                       )}
-                    </td>
-                    <td className="border border-slate-200 px-1 py-1" onClick={(e) => e.stopPropagation()}>
-                      {(p.barcode?.trim() || allProducts.find((product) => product.name === p.name)?.barcode?.trim()) ? (
-                        <button type="button" onClick={() => handlePrintProductBarcode(p)} className="w-full border border-slate-300 bg-white px-2 py-1.5 text-[10px] font-semibold text-slate-700 hover:bg-slate-50" title={`Print barcode tag for ${p.name}`}>Print</button>
-                      ) : (
-                        <button type="button" onClick={() => void handleGenerateQR(p)} disabled={generatingQrFor === p.name} className="w-full border border-slate-300 bg-white px-2 py-1.5 text-[10px] font-semibold text-emerald-700 hover:bg-emerald-50 disabled:opacity-50" title={`Generate and save a QR code for ${p.name}`}>{generatingQrFor === p.name ? "Generating..." : "Generate"}</button>
+                      {editableCell(
+                        p,
+                        "purchase",
+                        purchase != null ? fmt(purchase) : missingDataCell,
+                        "text-right tabular-nums text-slate-700"
                       )}
-                    </td>
-                  </tr>
-                ))}
+                      {editableCell(
+                        p,
+                        "barcode",
+                        barcode || missingDataCell,
+                        "text-slate-600"
+                      )}
+                      {editableCell(
+                        p,
+                        "mrp",
+                        p.mrp > 0 ? fmt(p.mrp) : missingDataCell,
+                        "text-right tabular-nums text-slate-700"
+                      )}
+                      {editableCell(
+                        p,
+                        "sale",
+                        salePrice != null ? fmt(salePrice) : missingDataCell,
+                        "text-right tabular-nums text-slate-700"
+                      )}
+                      {editableCell(
+                        p,
+                        "size",
+                        size || missingDataCell,
+                        "text-slate-600"
+                      )}
+                      <td className="border border-slate-200 px-1 py-1">
+                        <button type="button" onClick={() => selectProductToForm(p)} className="w-full border border-slate-300 bg-white px-2 py-1.5 text-[10px] font-semibold text-blue-700 hover:bg-blue-50">Update</button>
+                      </td>
+                      <td className="border border-slate-200 px-1 py-1">
+                        {p.inCatalog ? (
+                          <button type="button" onClick={() => handleDeleteList(p)} className="w-full border border-slate-300 bg-white px-2 py-1.5 text-[10px] font-semibold text-red-600 hover:bg-red-50">Delete</button>
+                        ) : (
+                          <button type="button" disabled className="w-full border border-slate-200 bg-slate-50 px-2 py-1.5 text-[10px] font-semibold text-slate-300">Delete</button>
+                        )}
+                      </td>
+                      <td className="border border-slate-200 px-1 py-1">
+                        {barcode ? (
+                          <button type="button" onClick={() => handlePrintProductBarcode(p)} className="w-full border border-slate-300 bg-white px-2 py-1.5 text-[10px] font-semibold text-slate-700 hover:bg-slate-50" title={`Print barcode tag for ${p.name}`}>Print</button>
+                        ) : (
+                          <button type="button" onClick={() => void handleGenerateQR(p)} disabled={generatingQrFor === p.name} className="w-full border border-slate-300 bg-white px-2 py-1.5 text-[10px] font-semibold text-emerald-700 hover:bg-emerald-50 disabled:opacity-50" title={`Generate and save a QR code for ${p.name}`}>{generatingQrFor === p.name ? "Generating..." : "Generate"}</button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
             </tbody>
           </table>
         </div>

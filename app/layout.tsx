@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import AuthGate from "@/components/AuthGate";
 import FirebaseAnalytics from "@/components/FirebaseAnalytics";
 import ToastProvider from "@/components/ToastProvider";
 import "./globals.css";
@@ -7,6 +8,9 @@ export const metadata: Metadata = {
   title: "Kherwal Bazaar - Udhar Recovery System",
   description:
     "Admin dashboard for Kherwal Bazaar Udhar Recovery System.",
+  icons: {
+    icon: "/icon.png",
+  },
 };
 
 export default function RootLayout({
@@ -34,7 +38,7 @@ export default function RootLayout({
       </head>
       <body className="bg-[#f3f4f8] text-slate-800 flex flex-col h-screen overflow-hidden">
         <ToastProvider>
-          {children}
+          <AuthGate>{children}</AuthGate>
           <FirebaseAnalytics />
         </ToastProvider>
       </body>

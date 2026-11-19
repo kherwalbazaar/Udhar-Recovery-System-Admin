@@ -1,13 +1,33 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
-import { Crown, Bell, ChevronDown, RefreshCw } from "lucide-react";
+import { useEffect, useRef, useState, useCallback } from "react";
+import { useRouter } from "next/navigation";
+import { Crown, Bell, ChevronDown, RefreshCw, LogOut } from "lucide-react";
 import { triggerBackgroundRefresh } from "@/lib/cache";
+import { ADMIN_EMAIL, signOut } from "@/lib/auth";
 import LiveAmountCard from "./LiveAmountCard";
 import HeaderNavigation from "./HeaderNavigation";
 
 export default function Header({ active = "Dashboard" }: { active?: string }) {
   const [isSpinning, setIsSpinning] = useState(false);
+  const [accountOpen, setAccountOpen] = useState(false);
+  const accountRef = useRef<HTMLDivElement>(null);
+  const router = useRouter();
+
+  useEffect(() => {
+    if (!accountOpen) return;
+    const onDocumentClick = (event: MouseEvent) => {
+      if (!accountRef.current?.contains(event.target as Node)) setAccountOpen(false);
+    };
+    document.addEventListener("click", onDocumentClick);
+    return () => document.removeEventListener("click", onDocumentClick);
+  }, [accountOpen]);
+
+  const handleSignOut = () => {
+    signOut();
+    setAccountOpen(false);
+    router.replace("/login");
+  };
 
   const handleRefresh = useCallback(() => {
     setIsSpinning(true);
@@ -70,15 +90,52 @@ export default function Header({ active = "Dashboard" }: { active?: string }) {
               <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full"></span>
             </button>
           </div>
-          <div className="flex items-center space-x-2 border-l border-slate-700 pl-2 md:pl-4">
-            <div className="w-8 h-8 rounded-full bg-slate-300 flex items-center justify-center text-slate-700 font-semibold text-xs">
-              KA
-            </div>
-            <div className="hidden sm:block text-xs">
-              <p className="font-medium">Kherwal</p>
-              <p className="text-[10px] text-slate-400">Admin</p>
-            </div>
-            <ChevronDown className="hidden sm:block w-4 h-4 text-slate-400" />
+          <div ref={accountRef} className="relative border-l border-slate-700 pl-2 md:pl-4">
+            <button
+              type="button"
+              aria-expanded={accountOpen}
+              aria-controls="header-account-menu"
+              onClick={(event) => {
+                event.stopPropagation();
+                setAccountOpen((open) => !open);
+              }}
+              className="flex items-center space-x-2 rounded-lg px-1 py-0.5 transition hover:bg-slate-800"
+            >
+              <div className="w-8 h-8 rounded-full bg-slate-300 flex items-center justify-center text-slate-700 font-semibold text-xs">
+                KA
+              </div>
+              <div className="hidden sm:block text-xs text-left">
+                <p className="font-medium">Kherwal</p>
+                <p className="text-[10px] text-slate-400">Admin</p>
+              </div>
+              <ChevronDown
+                className={`hidden sm:block w-4 h-4 text-slate-400 transition-transform duration-200 ${
+                  accountOpen ? "rotate-180" : ""
+                }`}
+              />
+            </button>
+
+            {accountOpen && (
+              <div
+                id="header-account-menu"
+                className="absolute right-0 top-full z-50 mt-2 w-60 rounded-xl border border-slate-200 bg-white p-2 text-slate-800 shadow-2xl"
+              >
+                <p className="px-2 pb-1 text-[10px] font-bold uppercase tracking-wide text-slate-400">
+                  Signed in as
+                </p>
+                <p className="truncate px-2 pb-2 text-xs font-semibold text-slate-700">
+                  {ADMIN_EMAIL}
+                </p>
+                <button
+                  type="button"
+                  onClick={handleSignOut}
+                  className="flex w-full items-center gap-2 rounded-lg bg-rose-50 px-2.5 py-2 text-xs font-bold text-rose-600 transition hover:bg-rose-100"
+                >
+                  <LogOut className="h-4 w-4" aria-hidden="true" />
+                  <span>Logout</span>
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </div>

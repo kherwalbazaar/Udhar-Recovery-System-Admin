@@ -4,6 +4,161 @@ body {
   font-family: 'Inter', sans-serif;
 }
 
+/* Login screen: keeps the whole page inside one viewport on desktop */
+.login-page {
+  overflow-y: hidden;
+}
+
+.login-main {
+  padding: clamp(10px, 2vh, 32px) clamp(16px, 2.5vw, 32px);
+  gap: clamp(12px, 2vh, 32px);
+}
+
+.login-hero-logo {
+  width: clamp(62px, 11vh, 112px);
+  height: clamp(62px, 11vh, 112px);
+}
+
+.login-title,
+.login-title-2 {
+  font-size: clamp(24px, 4.2vh, 42px);
+}
+
+.login-tagline {
+  margin-top: clamp(4px, 1.2vh, 10px);
+  font-size: clamp(11px, 1.8vh, 16px);
+}
+
+.login-banner {
+  margin-top: clamp(8px, 1.8vh, 24px);
+  padding: clamp(6px, 1.5vh, 14px) clamp(12px, 2vw, 24px);
+}
+
+.login-banner-title {
+  font-size: clamp(15px, 2.5vh, 24px);
+}
+
+.login-features {
+  display: grid;
+  margin-top: clamp(8px, 1.8vh, 20px);
+  gap: clamp(5px, 1.3vh, 12px);
+}
+
+.login-feature {
+  display: flex;
+  align-items: center;
+  gap: clamp(8px, 1.4vh, 14px);
+}
+
+.login-feature-icon {
+  width: clamp(32px, 5.6vh, 44px);
+  height: clamp(26px, 4.6vh, 36px);
+}
+
+.login-feature-label {
+  font-size: clamp(12px, 2vh, 16px);
+}
+
+.login-illustration {
+  display: none;
+}
+
+@media (min-height: 840px) and (min-width: 640px) {
+  .login-illustration {
+    display: block;
+    margin-top: 24px;
+  }
+}
+
+.login-card {
+  padding: clamp(12px, 2.2vh, 32px) clamp(18px, 2.4vw, 36px);
+}
+
+.login-logo {
+  width: clamp(54px, 9.2vh, 96px);
+  height: clamp(54px, 9.2vh, 96px);
+}
+
+.login-welcome {
+  margin-top: clamp(4px, 1.2vh, 12px);
+  font-size: clamp(20px, 3.2vh, 30px);
+}
+
+.login-subtitle {
+  margin-top: 4px;
+  font-size: clamp(11px, 1.7vh, 14px);
+}
+
+.login-form {
+  display: grid;
+  margin-top: clamp(10px, 2.2vh, 24px);
+  gap: clamp(7px, 1.5vh, 16px);
+}
+
+.login-field {
+  padding: clamp(7px, 1.35vh, 12px) 14px;
+}
+
+.login-row {
+  font-size: clamp(11px, 1.6vh, 14px);
+}
+
+.login-submit {
+  padding: clamp(9px, 1.75vh, 14px) 0;
+  font-size: clamp(15px, 2.1vh, 18px);
+}
+
+.login-divider {
+  margin: clamp(8px, 1.8vh, 20px) 0;
+}
+
+.login-trust {
+  padding: clamp(8px, 1.5vh, 14px) 16px;
+}
+
+.login-footer {
+  padding: 6px 16px;
+}
+
+/* Stacked layouts (and very short windows) still scroll normally */
+@media (max-width: 1023px), (max-height: 560px) {
+  .login-page {
+    height: auto;
+    flex: 1 1 auto;
+    overflow-y: auto;
+  }
+}
+
+/* Login screen accents */
+.login-card-shadow {
+  box-shadow: 0 20px 50px rgba(7, 45, 95, 0.14), 0 4px 16px rgba(14, 116, 144, 0.08);
+}
+
+.login-btn-shadow {
+  box-shadow: 0 10px 24px -4px rgba(2, 132, 199, 0.45);
+}
+
+.feature-badge-shadow {
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.12);
+}
+
+/* Dashboard visual accents */
+.db-glow {
+  box-shadow: 0 0 35px rgba(255, 255, 255, 0.9), 0 0 70px rgba(56, 189, 248, 0.85);
+}
+
+.banner-shadow {
+  box-shadow: 0 8px 25px rgba(3, 105, 161, 0.35), inset 0 1px 1px rgba(255, 255, 255, 0.4);
+}
+
+.card-shadow {
+  box-shadow: 0 10px 25px -5px rgba(2, 132, 199, 0.22), 0 4px 10px -2px rgba(2, 132, 199, 0.12);
+}
+
+.action-btn-shadow {
+  box-shadow: 0 10px 20px -4px rgba(0, 0, 0, 0.25), inset 0 1px 1px rgba(255, 255, 255, 0.45);
+}
+
 @keyframes search-blink {
   0%, 100% { box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.35); }
   50% { box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.05); }

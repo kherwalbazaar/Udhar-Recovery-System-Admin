@@ -39,6 +39,8 @@ export default function LiveAmountCard({
 
     let isMounted = true;
     let latestRequest = 0;
+    let pollTimer: ReturnType<typeof setInterval> | null = null;
+    let realtimeStopped = false;
 
     const fetchLatestAmount = async () => {
       const request = ++latestRequest;
@@ -54,7 +56,7 @@ export default function LiveAmountCard({
         if (!isMounted || request !== latestRequest) return;
 
         if (error) {
-          console.error("Failed to read the latest Supabase amount", error);
+          console.warn("Could not read the latest Supabase amount", error);
           setAmountStatus("unavailable");
           setQueryError(
             error.code === "42703" || error.code === "42P01"
@@ -84,13 +86,29 @@ export default function LiveAmountCard({
         setQueryError(null);
       } catch (error) {
         if (!isMounted || request !== latestRequest) return;
-        console.error("Failed to read the latest Supabase amount", error);
+        console.warn("Could not read the latest Supabase amount", error);
         setAmountStatus("unavailable");
         setQueryError("Could not read the latest amount. Check your connection.");
       }
     };
 
     void fetchLatestAmount();
+
+    // Realtime is a nice-to-have. When the websocket cannot connect (paused
+    // project, blocked network, missing realtime grant) fall back to a quiet
+    // 15 second poll instead of retrying and filling the console with errors.
+    const startPolling = () => {
+      if (pollTimer) return;
+      pollTimer = setInterval(() => {
+        void fetchLatestAmount();
+      }, 15000);
+    };
+
+    const stopPolling = () => {
+      if (!pollTimer) return;
+      clearInterval(pollTimer);
+      pollTimer = null;
+    };
 
     const channel = client
       .channel(`admin-amount-value-live-${crypto.randomUUID()}`)
@@ -101,22 +119,30 @@ export default function LiveAmountCard({
           void fetchLatestAmount();
         }
       )
-      .subscribe((status, error) => {
-        if (!isMounted) return;
+      .subscribe((status) => {
+        if (!isMounted || realtimeStopped) return;
 
         if (status === "SUBSCRIBED") {
           setConnectionStatus("connected");
           setRealtimeError(null);
-        } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
-          console.error("Supabase realtime subscription failed", error);
+          stopPolling();
+          return;
+        }
+
+        if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
+          realtimeStopped = true;
           setConnectionStatus("unavailable");
-          setRealtimeError("Live Supabase updates are unavailable.");
+          setRealtimeError("Live updates are paused. The amount refreshes every 15 seconds.");
+          startPolling();
+          void client.removeChannel(channel);
         }
       });
 
     return () => {
       isMounted = false;
+      realtimeStopped = true;
       latestRequest += 1;
+      stopPolling();
       void client.removeChannel(channel);
     };
   }, []);

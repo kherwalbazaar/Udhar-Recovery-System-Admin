@@ -1,5 +1,6 @@
 import { ref, push, set, update, runTransaction, remove } from "firebase/database";
 import { db } from "./firebase";
+import { supabase } from "./supabase";
 import {
   getWithCache,
   CACHE_KEYS,
@@ -306,6 +307,14 @@ export async function submitSale(params: {
 
   try {
     await update(ref(db), updates);
+    const billTotal = items.reduce(
+      (sum, item) => sum + Number(item.sale || 0) * Math.max(1, item.qty || 1),
+      0
+    );
+    if (supabase && billTotal > 0) {
+      Promise.resolve(supabase.from("amount_value").insert({ amount: billTotal }))
+        .catch(() => {});
+    }
   } catch (error) {
     if (idempotencyKey) await remove(ref(db, `completedBills/${idempotencyKey}`)).catch(() => {});
     throw error;

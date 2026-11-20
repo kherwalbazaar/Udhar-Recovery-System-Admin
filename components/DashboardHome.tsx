@@ -22,6 +22,7 @@ import {
   Printer,
   ShoppingCart,
   TrendingUp,
+  Truck,
   Users,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -187,9 +188,8 @@ export default function DashboardHome() {
     { label: "Sales", href: "/sales", icon: ShoppingCart, gradient: "from-[#0ea5e9] to-[#0369a1]" },
     { label: "New Entry", href: "/sales", icon: Plus, gradient: "from-[#22c55e] to-[#15803d]" },
     { label: "View Reports", href: "/sales-report", icon: BarChart3, gradient: "from-[#38bdf8] to-[#0284c7]" },
-    { label: "Set Reminder", href: "/reminders", icon: Bell, gradient: "from-[#fb7185] to-[#e11d48]" },
-    { label: "Print Bill", href: "/sales", icon: Printer, gradient: "from-[#2dd4bf] to-[#0f766e]" },
-    { label: "Export Data", href: "/sales-report", icon: Download, gradient: "from-[#a78bfa] to-[#6d28d9]" },
+    { label: "Khata", href: "/customers", icon: Users, gradient: "from-[#fb7185] to-[#e11d48]" },
+    { label: "Supplier", href: "/suppliers", icon: Truck, gradient: "from-[#2dd4bf] to-[#0f766e]" },
   ];
 
   return (
@@ -433,7 +433,7 @@ export default function DashboardHome() {
 
         {/* Quick actions */}
         <footer className="mx-auto w-full max-w-5xl pb-2">
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
             {quickActions.map(({ label, href, icon: Icon, gradient }, index) => (
               <Link
                 key={label}

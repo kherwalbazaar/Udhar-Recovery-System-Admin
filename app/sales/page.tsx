@@ -203,8 +203,7 @@ export default function AddSalePage() {
   const [customers, setCustomers] = useState<CustomerSummary[]>([]);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [search, setSearch] = useState("");
-  const [productTab, setProductTab] = useState<"scan" | "add">("scan");
-  const [scanCode, setScanCode] = useState("");
+  const [activeProductSuggestion, setActiveProductSuggestion] = useState(-1);
   const [selectedCustomer, setSelectedCustomer] =
     useState<CustomerSummary | null>(null);
   const [customerName, setCustomerName] = useState("");
@@ -254,7 +253,6 @@ export default function AddSalePage() {
   const sessionTouchedRef = useRef(false);
 
   const searchInputRef = useRef<HTMLInputElement>(null);
-  const scanInputRef = useRef<HTMLInputElement>(null);
   const submitRef = useRef<((quickPay?: boolean) => void) | null>(null);
 
   const genSku = () =>
@@ -615,10 +613,10 @@ export default function AddSalePage() {
   }, [products, productsLoading]);
 
   useEffect(() => {
-    if (!productsLoading && productTab === "scan" && scanInputRef.current) {
-      scanInputRef.current.focus();
+    if (!productsLoading && searchInputRef.current) {
+      searchInputRef.current.focus();
     }
-  }, [productsLoading, productTab]);
+  }, [productsLoading]);
 
   const subtotal = cart.reduce((sum, item) => sum + item.sale * item.qty, 0);
   const gstAmount = Number((subtotal * GST_RATE / 100).toFixed(2));
@@ -698,26 +696,85 @@ export default function AddSalePage() {
     });
   };
 
-  const handleBarcodeScan = (event: KeyboardEvent<HTMLInputElement>) => {
-    if (event.key !== "Enter") return;
-    event.preventDefault();
-    const code = scanCode.trim().toLocaleLowerCase();
-    if (!code) return;
-    const product = products.find(
-      (item) => item.barcode?.trim().toLocaleLowerCase() === code
-    );
-    if (!product) {
-      const missingCode = scanCode.trim();
-      setBarcodeNotice(`No product found for barcode “${missingCode}”.`);
-      setMissingBarcode(missingCode);
-      setScanCode("");
+  const handleProductKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    const q = search.trim().toLowerCase();
+
+    if (event.key === "ArrowDown") {
+      if (!visibleProducts.length) return;
+      event.preventDefault();
+      setActiveProductSuggestion((curr) =>
+        curr < 0 ? 0 : (curr + 1) % visibleProducts.length
+      );
       return;
     }
-    addToCart(product);
-    setBarcodeNotice(null);
-    setMissingBarcode(null);
-    setScanCode("");
-    requestAnimationFrame(() => scanInputRef.current?.focus());
+
+    if (event.key === "ArrowUp") {
+      if (!visibleProducts.length) return;
+      event.preventDefault();
+      setActiveProductSuggestion((curr) =>
+        curr <= 0 ? visibleProducts.length - 1 : curr - 1
+      );
+      return;
+    }
+
+    if (event.key === "Enter") {
+      event.preventDefault();
+      if (!q) return;
+
+      // 1. Check if the query is an exact barcode match
+      const exactBarcodeProduct = products.find(
+        (item) => item.barcode?.trim().toLowerCase() === q
+      );
+      if (exactBarcodeProduct) {
+        addToCart(exactBarcodeProduct);
+        setSearch("");
+        setActiveProductSuggestion(-1);
+        setBarcodeNotice(null);
+        setMissingBarcode(null);
+        requestAnimationFrame(() => searchInputRef.current?.focus());
+        return;
+      }
+
+      // 2. If the user highlighted a product with arrow keys
+      if (activeProductSuggestion >= 0 && activeProductSuggestion < visibleProducts.length) {
+        addToCart(visibleProducts[activeProductSuggestion]);
+        setSearch("");
+        setActiveProductSuggestion(-1);
+        setBarcodeNotice(null);
+        setMissingBarcode(null);
+        requestAnimationFrame(() => searchInputRef.current?.focus());
+        return;
+      }
+
+      // 3. If there are visible products matching the query, add the top match
+      if (visibleProducts.length > 0) {
+        addToCart(visibleProducts[0]);
+        setSearch("");
+        setActiveProductSuggestion(-1);
+        setBarcodeNotice(null);
+        setMissingBarcode(null);
+        requestAnimationFrame(() => searchInputRef.current?.focus());
+        return;
+      }
+
+      // 4. No product matched this barcode / search text
+      const missingCode = search.trim();
+      setBarcodeNotice(`No product found for “${missingCode}”.`);
+      setMissingBarcode(missingCode);
+      setSearch("");
+      setActiveProductSuggestion(-1);
+      requestAnimationFrame(() => searchInputRef.current?.focus());
+      return;
+    }
+
+    if (event.key === "Escape") {
+      if (search) {
+        event.preventDefault();
+        setSearch("");
+        setActiveProductSuggestion(-1);
+        setBarcodeNotice(null);
+      }
+    }
   };
 
   const handleStartAddBill = () => {
@@ -760,7 +817,6 @@ export default function AddSalePage() {
     setCustomerAddress(customer.address || "");
     setActiveCustomerSuggestion(-1);
     setCustomerSaveError(null);
-    setProductTab("scan");
 
     if (editingBillId) {
       const targetBill = billTabs.find((b) => b.id === editingBillId);
@@ -790,7 +846,7 @@ export default function AddSalePage() {
       setIsAddingBill(false);
       setEditingBillId(null);
       showToast("success", "Customer details updated.");
-      requestAnimationFrame(() => scanInputRef.current?.focus());
+      requestAnimationFrame(() => searchInputRef.current?.focus());
       return;
     }
 
@@ -842,7 +898,7 @@ export default function AddSalePage() {
     setIsAddingBill(false);
     setEditingBillId(null);
     showToast("success", `Created ${title}`);
-    requestAnimationFrame(() => scanInputRef.current?.focus());
+    requestAnimationFrame(() => searchInputRef.current?.focus());
   };
 
   const saveNewCustomer = () => {
@@ -1412,10 +1468,8 @@ export default function AddSalePage() {
     const onKeyDown = (event: globalThis.KeyboardEvent) => {
       if (event.key === "F2") {
         event.preventDefault();
-        const target =
-          productTab === "scan" ? scanInputRef.current : searchInputRef.current;
-        target?.focus();
-        target?.select();
+        searchInputRef.current?.focus();
+        searchInputRef.current?.select();
       } else if (event.key === "F9") {
         event.preventDefault();
         submitRef.current?.(true);
@@ -1431,23 +1485,34 @@ export default function AddSalePage() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [productTab, quickAddOpen, upiDialogOpen, checkoutOpen, receivedDialogOpen]);
+  }, [quickAddOpen, upiDialogOpen, checkoutOpen, receivedDialogOpen]);
+
+  useEffect(() => {
+    if (activeProductSuggestion >= 0) {
+      const el = document.getElementById(`sales-product-suggestion-${activeProductSuggestion}`);
+      el?.scrollIntoView({ block: "nearest" });
+    }
+  }, [activeProductSuggestion]);
 
   const filteredProducts = (() => {
     const q = search.trim().toLowerCase().replace(/\s+/g, " ");
-    if (!q) return products;
+    if (!q) return [];
     const qWords = q.split(" ").filter(Boolean);
     const isSingleConcatenatedInitials = qWords.length === 1 && q.length <= 5;
     const qAsNumber = Number(q);
-    return products.filter((p) => {
-      if (p.barcode && p.barcode.toLowerCase().includes(q)) return true;
+
+    const matches = products.filter((p) => {
+      const barcode = p.barcode?.trim().toLowerCase();
+      if (barcode && barcode.includes(q)) return true;
+      const name = p.name.trim().toLowerCase();
+      if (name.includes(q)) return true;
       if (qAsNumber > 0 && (p.mrp === qAsNumber || p.sale === qAsNumber)) return true;
-      const words = p.name.toLowerCase().split(/\s+/).filter(Boolean);
+      const words = name.split(/\s+/).filter(Boolean);
       const initials = words.map((w) => w[0]).join("");
       if (words.some((w) => w.startsWith(q))) return true;
       if (qWords.length > 1) {
         if (qWords.length > words.length) return false;
-        return qWords.every((qw, i) => words[i].startsWith(qw));
+        return qWords.every((qw, i) => words[i]?.startsWith(qw));
       }
       if (isSingleConcatenatedInitials) {
         if (initials.startsWith(q)) return true;
@@ -1455,11 +1520,29 @@ export default function AddSalePage() {
       }
       return false;
     });
+
+    return matches.sort((a, b) => {
+      const aBarcode = a.barcode?.trim().toLowerCase() || "";
+      const bBarcode = b.barcode?.trim().toLowerCase() || "";
+      const aName = a.name.trim().toLowerCase();
+      const bName = b.name.trim().toLowerCase();
+
+      if (aBarcode === q && bBarcode !== q) return -1;
+      if (bBarcode === q && aBarcode !== q) return 1;
+
+      if (aName === q && bName !== q) return -1;
+      if (bName === q && aName !== q) return 1;
+
+      const aStarts = aName.startsWith(q);
+      const bStarts = bName.startsWith(q);
+      if (aStarts && !bStarts) return -1;
+      if (!aStarts && bStarts) return 1;
+
+      return 0;
+    });
   })();
 
-  const visibleProducts = search.trim()
-    ? filteredProducts
-    : filteredProducts.slice(0, 10);
+  const visibleProducts = filteredProducts.slice(0, 15);
 
   const chip = (name: string) => name.charAt(0).toUpperCase();
   const customerQuery = customerName.trim().toLocaleLowerCase();
@@ -1907,13 +1990,6 @@ export default function AddSalePage() {
                 >
                   <Plus className="h-3.5 w-3.5" />
                   <span>Add Bill</span>
-                  <span
-                    className={`rounded px-1 text-[9px] font-bold ${
-                      billLimitReached ? "bg-slate-200 text-slate-500" : "bg-blue-200/70 text-blue-800"
-                    }`}
-                  >
-                    {billTabs.length}/{MAX_OPEN_BILLS}
-                  </span>
                 </button>
               </div>
               <label className={`ml-auto inline-flex flex-none items-center gap-2 whitespace-nowrap text-xs font-medium ${
@@ -2064,57 +2140,104 @@ export default function AddSalePage() {
                   <span className="text-2xl font-bold text-green-700">₹{fmt(payable)}</span>
                 </div>
               </div>
-              {productTab === "scan" ? (
+              <div className="relative min-w-[240px] flex-1">
                 <input
-                  ref={scanInputRef}
-                  id="sales-barcode-scan"
+                  ref={searchInputRef}
+                  id="sales-product-search"
                   type="text"
-                  inputMode="text"
                   autoComplete="off"
-                  value={scanCode}
+                  role="combobox"
+                  aria-autocomplete="list"
+                  aria-expanded={search.trim().length > 0 && visibleProducts.length > 0}
+                  aria-controls="sales-product-suggestions"
+                  aria-activedescendant={
+                    activeProductSuggestion >= 0 && visibleProducts[activeProductSuggestion]
+                      ? `sales-product-suggestion-${activeProductSuggestion}`
+                      : undefined
+                  }
+                  value={search}
                   onChange={(event) => {
-                    setScanCode(event.target.value);
+                    setSearch(event.target.value);
+                    setActiveProductSuggestion(-1);
                     setBarcodeNotice(null);
                     setMissingBarcode(null);
                   }}
-                  onKeyDown={handleBarcodeScan}
-                  placeholder="Scan or enter product barcode"
-                  aria-label="Scan or enter product barcode"
+                  onKeyDown={handleProductKeyDown}
+                  placeholder="Search product name or scan barcode…"
+                  aria-label="Search product or scan barcode"
                   disabled={productsLoading}
-                  className="w-48 flex-none border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                  className="w-full border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
                 />
-              ) : (
-                <input
-                  ref={searchInputRef}
-                  type="search"
-                  value={search}
-                  onChange={(event) => setSearch(event.target.value)}
-                  placeholder="Search product name or barcode"
-                  aria-label="Search products to add"
-                  className="min-w-[180px] flex-1 border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                />
-              )}
-              <div className="flex items-center rounded-md border border-slate-200 p-0.5" aria-label="Product entry mode">
-                <button
-                  type="button"
-                  onClick={() => setProductTab("scan")}
-                  aria-pressed={productTab === "scan"}
-                  className={`rounded px-3 py-1.5 text-xs font-semibold ${productTab === "scan" ? "bg-pink-600 text-white" : "bg-green-600 text-white hover:bg-green-700"}`}
-                >
-                  Scan
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setProductTab("add");
-                    requestAnimationFrame(() => searchInputRef.current?.focus());
-                  }}
-                  aria-pressed={productTab === "add"}
-                  className={`rounded px-3 py-1.5 text-xs font-semibold ${productTab === "add" ? "bg-green-600 text-white" : "bg-pink-600 text-white hover:bg-pink-700"}`}
-                >
-                  + Add
-                </button>
+
+                {search.trim().length > 0 && (
+                  <div
+                    id="sales-product-suggestions"
+                    role="listbox"
+                    className="absolute left-0 right-0 top-full z-40 max-h-64 overflow-y-auto border border-slate-300 bg-white shadow-xl"
+                  >
+                    {productsLoading ? (
+                      <p className="px-3 py-2 text-xs text-slate-500">Loading products…</p>
+                    ) : visibleProducts.length > 0 ? (
+                      visibleProducts.map((product, index) => {
+                        const isSelected = activeProductSuggestion === index;
+                        return (
+                          <div
+                            key={`${product.name}-${index}`}
+                            id={`sales-product-suggestion-${index}`}
+                            role="option"
+                            aria-selected={isSelected}
+                            onMouseEnter={() => setActiveProductSuggestion(index)}
+                            onClick={() => {
+                              addToCart(product);
+                              setSearch("");
+                              setActiveProductSuggestion(-1);
+                              setBarcodeNotice(null);
+                              setMissingBarcode(null);
+                              requestAnimationFrame(() => searchInputRef.current?.focus());
+                            }}
+                            className={`flex cursor-pointer items-center justify-between gap-3 border-b border-slate-100 px-3 py-2 text-left transition-colors last:border-0 ${
+                              isSelected ? "bg-blue-100" : "hover:bg-blue-50"
+                            }`}
+                          >
+                            <div className="min-w-0">
+                              <p className="truncate text-xs font-semibold text-slate-800">{product.name}</p>
+                              <p className="text-[10px] text-slate-500">
+                                Sale ₹{fmt(priceInputs[product.name] ?? product.sale)}
+                                {product.mrp ? ` · MRP ₹${fmt(product.mrp)}` : ""}
+                                {product.barcode ? ` · Barcode: ${product.barcode}` : ""}
+                                {product.size ? ` · Size: ${product.size}` : ""}
+                              </p>
+                            </div>
+                            <button
+                              type="button"
+                              tabIndex={-1}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                addToCart(product);
+                                setSearch("");
+                                setActiveProductSuggestion(-1);
+                                setBarcodeNotice(null);
+                                setMissingBarcode(null);
+                                requestAnimationFrame(() => searchInputRef.current?.focus());
+                              }}
+                              className={`flex-none rounded px-3 py-1 text-xs font-semibold text-white shadow-sm transition ${
+                                isSelected ? "bg-blue-700" : "bg-blue-600 hover:bg-blue-700"
+                              }`}
+                            >
+                              Add
+                            </button>
+                          </div>
+                        );
+                      })
+                    ) : (
+                      <div className="p-3 text-center">
+                        <p className="text-xs text-slate-500">No matching products found.</p>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
+
               <button
                 type="button"
                 onClick={() => {
@@ -2143,40 +2266,16 @@ export default function AddSalePage() {
               </span>
             </div>
 
-            {productTab === "scan" ? (
-              barcodeNotice && (
-                <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
-                  <p role="status" className={missingBarcode ? "text-amber-700" : "text-slate-600"}>{barcodeNotice}</p>
-                  {missingBarcode && (
-                    <Link
-                      href={`/products?barcode=${encodeURIComponent(missingBarcode)}&from=sales`}
-                      className="rounded bg-blue-600 px-3 py-1.5 font-semibold text-white hover:bg-blue-700"
-                    >
-                      Add Product
-                    </Link>
-                  )}
-                </div>
-              )
-            ) : (
-              <div className="mb-3">
-                {search.trim() && (
-                  <div className="max-h-52 overflow-y-auto border border-slate-200">
-                    {productsLoading ? (
-                      <p className="px-3 py-2 text-xs text-slate-500">Loading products…</p>
-                    ) : visibleProducts.length ? (
-                      visibleProducts.map((product) => (
-                        <div key={product.name} className="flex items-center justify-between gap-3 border-b border-slate-100 px-3 py-2 last:border-0">
-                          <div className="min-w-0">
-                            <p className="truncate text-xs font-medium text-slate-800">{product.name}</p>
-                            <p className="text-[10px] text-slate-500">Sale ₹{fmt(priceInputs[product.name] ?? product.sale)}{product.barcode ? ` · ${product.barcode}` : ""}</p>
-                          </div>
-                          <button type="button" onClick={() => addToCart(product)} className="flex-none rounded bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700">Add</button>
-                        </div>
-                      ))
-                    ) : (
-                      <p className="px-3 py-2 text-xs text-slate-500">No matching products.</p>
-                    )}
-                  </div>
+            {barcodeNotice && (
+              <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
+                <p role="status" className={missingBarcode ? "text-amber-700 font-medium" : "text-slate-600"}>{barcodeNotice}</p>
+                {missingBarcode && (
+                  <Link
+                    href={`/products?barcode=${encodeURIComponent(missingBarcode)}&from=sales`}
+                    className="rounded bg-blue-600 px-3 py-1.5 font-semibold text-white hover:bg-blue-700"
+                  >
+                    Add Product
+                  </Link>
                 )}
               </div>
             )}
@@ -2199,7 +2298,7 @@ export default function AddSalePage() {
                 </thead>
                 <tbody className="text-xs">
                   {cart.length === 0 ? (
-                    <tr><td colSpan={10} className="h-24 border border-slate-300 text-center text-slate-400">Scan a barcode or use + Add to select products.</td></tr>
+                    <tr><td colSpan={10} className="h-24 border border-slate-300 text-center text-slate-400">Scan a barcode or search products to add to bill.</td></tr>
                   ) : cart.map((item) => (
                     <tr key={item.name} className="border-b border-slate-200">
                       <td className="border border-slate-300 px-2 py-2 font-medium text-slate-800">{item.name}</td>

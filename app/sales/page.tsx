@@ -227,7 +227,8 @@ export default function AddSalePage() {
   const [paymentMode, setPaymentMode] = useState<PaymentMode>("Cash");
   const [upiDialogOpen, setUpiDialogOpen] = useState(false);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
-  const [checkoutQuickPay, setCheckoutQuickPay] = useState(true);
+  const [receivedDialogOpen, setReceivedDialogOpen] = useState(false);
+  const [receivedInput, setReceivedInput] = useState("");
   const [upiQrCode, setUpiQrCode] = useState<string | null>(null);
   const [upiQrError, setUpiQrError] = useState<string | null>(null);
   const [invoiceNo, setInvoiceNo] = useState<string | null>(null);
@@ -1232,23 +1233,39 @@ export default function AddSalePage() {
     }
   };
 
-  // Cash bills get one last confirmation before anything is written to the database.
-  const requestCheckout = (quickPay = !receivedTouched) => {
+  // Cash bills ask for the received amount first, then get one last confirmation
+  // before anything is written to the database.
+  const openReceivedDialog = () => {
     if (submitting) return;
-    setCheckoutQuickPay(quickPay);
+    const starting = receivedTouched && received > 0 ? received : payable;
+    setReceivedInput(String(Number(starting.toFixed(2))));
+    setReceivedDialogOpen(true);
+  };
+
+  const confirmReceived = () => {
+    const amount = Math.max(0, Number(receivedInput) || 0);
+    setReceived(amount);
+    setReceivedTouched(true);
+    setReceivedDialogOpen(false);
     setCheckoutOpen(true);
   };
 
   const confirmCheckout = () => {
     if (submitting) return;
     setCheckoutOpen(false);
-    void handleSubmit(checkoutQuickPay);
+    void handleSubmit(false);
   };
 
   const requestSubmit = (quickPay = false) => {
     if (submitting) return;
     if (paymentMode === "Cash") {
-      requestCheckout(quickPay);
+      if (quickPay) {
+        setReceived(Number(payable.toFixed(2)));
+        setReceivedTouched(true);
+        setCheckoutOpen(true);
+      } else {
+        openReceivedDialog();
+      }
       return;
     }
     void handleSubmit(quickPay);
@@ -1271,6 +1288,8 @@ export default function AddSalePage() {
       } else if (event.key === "F9") {
         event.preventDefault();
         submitRef.current?.(true);
+      } else if (event.key === "Escape" && receivedDialogOpen) {
+        setReceivedDialogOpen(false);
       } else if (event.key === "Escape" && checkoutOpen) {
         setCheckoutOpen(false);
       } else if (event.key === "Escape" && upiDialogOpen) {
@@ -1281,7 +1300,7 @@ export default function AddSalePage() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [productTab, quickAddOpen, upiDialogOpen, checkoutOpen]);
+  }, [productTab, quickAddOpen, upiDialogOpen, checkoutOpen, receivedDialogOpen]);
 
   const retryPayableSync = useCallback(async () => {
     if (pendingPayable === null || syncingPayable) return;
@@ -2345,23 +2364,6 @@ export default function AddSalePage() {
               <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Net Pay</p>
               <p className="text-xl font-bold text-green-700">₹{fmt(payable)}</p>
             </div>
-            <label className="flex items-center gap-2 text-xs font-medium text-slate-600">
-              <span>Received</span>
-              <span className="flex items-center border border-slate-300 bg-white px-2">
-                <span className="text-slate-400">₹</span>
-                <input
-                  type="number"
-                  min="0"
-                  value={received}
-                  onChange={(event) => {
-                    setReceived(Math.max(0, Number(event.target.value) || 0));
-                    setReceivedTouched(true);
-                  }}
-                  aria-label="Amount received"
-                  className="w-20 px-1.5 py-1.5 text-right text-sm font-semibold text-slate-800 outline-none"
-                />
-              </span>
-            </label>
             <div>
               <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Payment</p>
               <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Payment mode">
@@ -2373,7 +2375,7 @@ export default function AddSalePage() {
                       sessionTouchedRef.current = true;
                       setPaymentMode(label);
                       setUpiDialogOpen(label === "UPI");
-                      if (label === "Cash") requestCheckout();
+                      if (label === "Cash") openReceivedDialog();
                     }}
                     aria-pressed={paymentMode === label}
                     className={`inline-flex h-11 min-w-16 items-center justify-center gap-1.5 rounded-lg border px-3 text-xs font-bold shadow-sm transition-all duration-200 sm:h-12 sm:min-w-20 sm:gap-2 sm:px-4 sm:text-sm ${
@@ -2438,6 +2440,88 @@ export default function AddSalePage() {
       </div>
       <div aria-hidden="true" className="h-28" />
 
+      {receivedDialogOpen && (
+        <div
+          className="fixed inset-0 z-[75] flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setReceivedDialogOpen(false);
+          }}
+        >
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="received-dialog-title"
+            className="w-full max-w-xs overflow-hidden rounded-2xl border border-white/70 bg-white shadow-2xl ring-1 ring-black/10 animate-toast-in"
+          >
+            <div className="flex items-start justify-between gap-3 bg-gradient-to-br from-emerald-600 to-teal-700 px-5 py-4 text-white">
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-emerald-100">
+                  Cash payment
+                </p>
+                <h2 id="received-dialog-title" className="mt-1 text-lg font-extrabold">
+                  Received
+                </h2>
+                <p className="mt-1 text-xs text-emerald-50">Net Pay ₹{fmt(payable)}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setReceivedDialogOpen(false)}
+                aria-label="Close received popup"
+                className="rounded-xl p-2 text-white/80 transition hover:bg-white/15 hover:text-white"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="px-5 py-4">
+              <label htmlFor="cash-received-input" className="block text-[11px] font-semibold text-slate-600">
+                Amount received
+              </label>
+              <div className="mt-1 flex items-center rounded-xl border border-slate-300 bg-white px-3 focus-within:border-emerald-500 focus-within:ring-1 focus-within:ring-emerald-500">
+                <span className="text-lg font-bold text-slate-400">₹</span>
+                <input
+                  id="cash-received-input"
+                  autoFocus
+                  type="number"
+                  inputMode="decimal"
+                  min="0"
+                  step="0.01"
+                  value={receivedInput}
+                  onChange={(event) => setReceivedInput(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      confirmReceived();
+                    }
+                  }}
+                  className="w-full bg-transparent px-2 py-2.5 text-xl font-bold text-slate-800 outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                />
+              </div>
+              <p className="mt-2 text-[11px] font-medium text-slate-500">
+                Change ₹{fmt(Math.max(0, (Number(receivedInput) || 0) - payable))}
+              </p>
+
+              <div className="mt-4 flex gap-2">
+                <button
+                  type="button"
+                  onClick={confirmReceived}
+                  className="flex-1 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-bold text-white transition hover:bg-emerald-700"
+                >
+                  Received
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setReceivedDialogOpen(false)}
+                  className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-50"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </section>
+        </div>
+      )}
+
       {checkoutOpen && (
         <div
           className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm"
@@ -2499,15 +2583,23 @@ export default function AddSalePage() {
               <div className="flex justify-between gap-3">
                 <span>Amount received</span>
                 <span className="font-semibold text-slate-800">
-                  ₹{fmt(checkoutQuickPay ? payable : received)}
+                  ₹{fmt(received)}
                 </span>
               </div>
               <div className="flex justify-between gap-3">
                 <span>Change</span>
                 <span className="font-semibold text-emerald-600">
-                  ₹{fmt(Math.max(0, (checkoutQuickPay ? payable : received) - payable))}
+                  ₹{fmt(Math.max(0, received - payable))}
                 </span>
               </div>
+              {received < payable && (
+                <div className="flex justify-between gap-3">
+                  <span>Balance</span>
+                  <span className="font-semibold text-amber-700">
+                    ₹{fmt(payable - received)}
+                  </span>
+                </div>
+              )}
 
               {!selectedCustomer && (
                 <p className="rounded-md bg-amber-50 px-2 py-1.5 font-semibold text-amber-700">

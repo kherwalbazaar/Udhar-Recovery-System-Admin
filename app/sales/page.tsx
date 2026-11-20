@@ -27,10 +27,10 @@ import {
 import AppShell from "@/components/AppShell";
 import PageBackButton from "@/components/PageBackButton";
 import { useToast } from "@/components/ToastProvider";
-import OptionalSupabaseAdminSignIn from "@/components/OptionalSupabaseAdminSignIn";
 import {
   fetchProducts,
   fetchCustomers,
+  createCustomer,
   submitSale,
   type Product,
   type CustomerSummary,
@@ -44,7 +44,6 @@ import {
   saveLocalCustomerDraft,
 } from "@/lib/local-customers";
 import { saveProduct } from "@/lib/products";
-import { savePayableAmount } from "@/lib/supabase";
 import { CACHE_KEYS, readCache } from "@/lib/cache";
 import {
   completePendingBill,
@@ -209,10 +208,6 @@ export default function AddSalePage() {
   const [receivedTouched, setReceivedTouched] = useState(false);
   const [autoSendWhatsapp, setAutoSendWhatsapp] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [pendingPayable, setPendingPayable] = useState<number | null>(null);
-  const [syncingPayable, setSyncingPayable] = useState(false);
-  const [syncAuthorized, setSyncAuthorized] = useState(false);
-  const [syncError, setSyncError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [quickAddOpen, setQuickAddOpen] = useState(false);
   const [qaName, setQaName] = useState("");
@@ -514,7 +509,9 @@ export default function AddSalePage() {
   useEffect(() => {
     if (!activeBillId || suppressPendingSaveRef.current) return;
     const currentTab = billTabs.find((b) => b.id === activeBillId);
-    const isSaved = Boolean(currentTab?.isSaved);
+    // Never invent a pending bill for a tab that was removed or is still loading.
+    if (!currentTab) return;
+    const isSaved = Boolean(currentTab.isSaved);
     const name = isSaved
       ? (currentTab?.name || selectedCustomer?.name || customerName.trim())
       : customerName.trim();
@@ -976,17 +973,28 @@ export default function AddSalePage() {
     setCustomers((current) => current.filter((entry) => entry.id !== customer.id));
   };
 
-  const clearCart = () => {
+  const clearCart = async () => {
+    const confirmed = await confirmAction({
+      title: "Clear this bill?",
+      message:
+        "All products in this bill will be removed and the bill tab will close. This cannot be undone.",
+      confirmLabel: "Clear bill",
+      cancelLabel: "Keep bill",
+      tone: "danger",
+    });
+    if (!confirmed) return;
+
     sessionTouchedRef.current = true;
-    setCart([]);
-    setInvoiceNo(null);
     writeDraft(null);
-    // Drop the saved copy too, otherwise the cleared products would come back on refresh.
     const id = activeBillIdRef.current;
-    if (!id) return;
-    deleteLocalPendingBill(id);
-    setBillTabs((tabs) => tabs.filter((bill) => bill.id !== id));
-    void deletePendingBill(id).catch(() => {});
+    if (!id) {
+      setCart([]);
+      setInvoiceNo(null);
+      return;
+    }
+    // Deleting the tab resets (or switches away from) the active bill, so the
+    // cleared bill cannot be re-saved later by the pending bill autosave.
+    await handleRemoveBillTab(id);
   };
 
   const handlePrintReceipt = async (preopenedWindow?: Window | null) => {
@@ -1062,8 +1070,8 @@ export default function AddSalePage() {
     preopenedPrintWindow?: Window | null,
   ) => {
     if (submitting) return;
-    if (!selectedCustomer) {
-      setError("Select a customer before submitting this sale.");
+    if (!selectedCustomer && (!customerName.trim() || customerPhone.replace(/\D/g, "").length !== 10)) {
+      setError("Enter the customer name and a valid 10-digit mobile number before checkout.");
       return;
     }
     if (cart.length === 0) return;
@@ -1072,14 +1080,32 @@ export default function AddSalePage() {
       setError("Final payable must be greater than zero to sync with the QR amount.");
       return;
     }
-    if (pendingPayable !== null) {
-      setError("Sync the previous sale amount before submitting another sale.");
-      return;
-    }
 
     // A customer saved on this device is written to Firebase together with the
     // bill, so the shared customer list only gets customers that really bought.
-    let saleCustomer = selectedCustomer;
+    let saleCustomer: CustomerSummary;
+    if (selectedCustomer) {
+      saleCustomer = selectedCustomer;
+    } else {
+      const name = customerName.trim();
+      const phone = customerPhone.replace(/\D/g, "").slice(0, 10);
+      const existingCustomer = customers.find(
+        (entry) => entry.name.trim().toLowerCase() === name.toLowerCase() && entry.phone.replace(/\D/g, "") === phone
+      );
+      try {
+        const checkoutCustomer = existingCustomer ?? await createCustomer({
+          name,
+          phone,
+          address: customerAddress.trim(),
+        });
+        saleCustomer = checkoutCustomer;
+        setSelectedCustomer(checkoutCustomer);
+        setCustomers((current) => [checkoutCustomer, ...current.filter((entry) => entry.id !== checkoutCustomer.id)]);
+      } catch (customerError) {
+        setError(`Customer could not be saved to Firebase: ${customerError instanceof Error ? customerError.message : "Database error"}`);
+        return;
+      }
+    }
     if (isLocalCustomer(saleCustomer.id)) {
       try {
         const localCustomerId = saleCustomer.id;
@@ -1110,7 +1136,6 @@ export default function AddSalePage() {
 
     setSubmitting(true);
     setError(null);
-    setSyncError(null);
     try {
       await submitSale({
         items: cart.map((i) => ({
@@ -1177,8 +1202,8 @@ export default function AddSalePage() {
         }
       }
 
-      if (autoSendWhatsapp && selectedCustomer.phone.trim()) {
-        const digits = selectedCustomer.phone.replace(/\D/g, "");
+      if (autoSendWhatsapp && saleCustomer.phone.trim()) {
+        const digits = saleCustomer.phone.replace(/\D/g, "");
         const whatsappPhone = digits.length === 10
           ? `91${digits}`
           : digits.startsWith("0") && digits.length === 11
@@ -1188,7 +1213,7 @@ export default function AddSalePage() {
           "*KHERWAL BAZAAR*",
           "Sale receipt",
           ...(invoiceNo ? [`Bill No: ${invoiceNo}`] : []),
-          `Customer: ${selectedCustomer.name}`,
+          `Customer: ${saleCustomer.name}`,
           "",
           ...cart.map((item) => `${item.name} × ${item.qty} — ₹${fmt(item.sale * item.qty)}`),
           `GST (${GST_RATE}%): ₹${fmt(gstAmount)}`,
@@ -1213,17 +1238,7 @@ export default function AddSalePage() {
       setCustomerSaveError(null);
       setCustomerFormOpen(false);
       setAutoSendWhatsapp(false);
-      setPendingPayable(finalPayable);
-
-      try {
-        await savePayableAmount(finalPayable);
-        setPendingPayable(null);
-        showToast("success", "Sale added successfully!");
-      } catch (e) {
-        setSyncError(
-          `Sale was saved to Firebase, but its final payable amount was not synced to Supabase. ${e instanceof Error ? e.message : "Try syncing again."}`
-        );
-      }
+      showToast("success", "Sale added successfully!");
     } catch (e) {
       preopenedPrintWindow?.close();
       whatsappWindow?.close();
@@ -1252,6 +1267,11 @@ export default function AddSalePage() {
 
   const confirmCheckout = () => {
     if (submitting) return;
+    if (!selectedCustomer && (!customerName.trim() || customerPhone.replace(/\D/g, "").length !== 10)) {
+      setError("Enter the customer name and a valid 10-digit mobile number to check out.");
+      return;
+    }
+    setError(null);
     setCheckoutOpen(false);
     void handleSubmit(false);
   };
@@ -1301,30 +1321,6 @@ export default function AddSalePage() {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [productTab, quickAddOpen, upiDialogOpen, checkoutOpen, receivedDialogOpen]);
-
-  const retryPayableSync = useCallback(async () => {
-    if (pendingPayable === null || syncingPayable) return;
-
-    setSyncingPayable(true);
-    setSyncError(null);
-    try {
-      await savePayableAmount(pendingPayable);
-      setPendingPayable(null);
-      showToast("success", "Sale added successfully!");
-    } catch (e) {
-      setSyncError(
-        `Sale is saved to Firebase, but its final payable amount is still not synced. ${e instanceof Error ? e.message : "Try syncing again."}`
-      );
-    } finally {
-      setSyncingPayable(false);
-    }
-  }, [pendingPayable, showToast, syncingPayable]);
-
-  useEffect(() => {
-    if (syncAuthorized && pendingPayable !== null && !syncingPayable) {
-      void retryPayableSync();
-    }
-  }, [pendingPayable, retryPayableSync, syncAuthorized, syncingPayable]);
 
   const filteredProducts = (() => {
     const q = search.trim().toLowerCase().replace(/\s+/g, " ");
@@ -1971,7 +1967,7 @@ export default function AddSalePage() {
               {cart.length > 0 && (
                 <button
                   type="button"
-                  onClick={clearCart}
+                  onClick={() => void clearCart()}
                   className="inline-flex flex-none items-center gap-1 rounded-md border border-rose-300 px-3 py-1.5 text-xs font-semibold text-rose-600 hover:bg-rose-50"
                 >
                   <Trash2 className="h-4 w-4" />
@@ -2077,7 +2073,7 @@ export default function AddSalePage() {
               </h3>
               <button
                 type="button"
-                onClick={clearCart}
+                onClick={() => void clearCart()}
                 className="text-[11px] text-red-500 hover:underline flex items-center space-x-1"
               >
                 <Trash2 className="w-3 h-3" />
@@ -2308,47 +2304,19 @@ export default function AddSalePage() {
               type="button"
               onClick={() => requestSubmit(false)}
               disabled={
-                submitting || cart.length === 0 || !selectedCustomer || pendingPayable !== null
+                submitting || cart.length === 0 || !selectedCustomer
               }
               className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold text-xs py-2.5 rounded-lg flex items-center justify-center space-x-1.5 transition-colors"
             >
               <Check className="w-4 h-4" />
               <span>
-                {submitting
-                  ? "Completing..."
-                  : pendingPayable !== null
-                    ? "Sync previous sale first"
-                    : "Complete Bill"}
+                {submitting ? "Completing..." : "Complete Bill"}
               </span>
             </button>
           </div>
           )}
         </div>
       </div>
-
-      {syncError && (
-        <div
-          role="alert"
-          className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs font-semibold text-amber-800"
-        >
-          <div className="w-full space-y-3">
-            <p>{syncError}</p>
-            <OptionalSupabaseAdminSignIn
-              onAuthorizationChange={setSyncAuthorized}
-            />
-            {pendingPayable !== null && !syncAuthorized && (
-              <button
-                type="button"
-                onClick={() => void retryPayableSync()}
-                disabled={syncingPayable}
-                className="rounded-md bg-amber-700 px-3 py-1.5 text-white hover:bg-amber-800 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {syncingPayable ? "Syncing..." : "Retry amount sync"}
-              </button>
-            )}
-          </div>
-        </div>
-      )}
 
       {/* Leaves room for the fixed totals bar so the last cards stay clickable */}
       <div aria-hidden="true" className="h-24" />
@@ -2406,7 +2374,7 @@ export default function AddSalePage() {
             <button
               type="button"
               onClick={() => requestSubmit(false)}
-              disabled={submitting || cart.length === 0 || !selectedCustomer || pendingPayable !== null}
+              disabled={submitting || cart.length === 0}
               className="inline-flex items-center gap-1.5 rounded-md bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <Wallet className="h-4 w-4" />
@@ -2415,7 +2383,7 @@ export default function AddSalePage() {
             <button
               type="button"
               onClick={() => requestSubmit(true)}
-              disabled={submitting || cart.length === 0 || !selectedCustomer || pendingPayable !== null}
+              disabled={submitting || cart.length === 0}
               className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <Check className="h-4 w-4" />
@@ -2602,9 +2570,12 @@ export default function AddSalePage() {
               )}
 
               {!selectedCustomer && (
-                <p className="rounded-md bg-amber-50 px-2 py-1.5 font-semibold text-amber-700">
-                  Select a customer before checking out.
-                </p>
+                <div className="space-y-2 rounded-md bg-amber-50 p-2">
+                  <p className="font-semibold text-amber-800">Enter customer details to check out.</p>
+                  <input aria-label="Customer name for checkout" autoComplete="name" value={customerName} onChange={(event) => { setCustomerName(event.target.value); setError(null); }} placeholder="Customer name" className="w-full rounded border border-amber-200 bg-white px-2 py-2 text-sm text-slate-800 outline-none focus:border-emerald-500" />
+                  <input aria-label="Customer mobile number for checkout" type="tel" inputMode="numeric" maxLength={10} value={customerPhone} onChange={(event) => { setCustomerPhone(event.target.value.replace(/\D/g, "").slice(0, 10)); setError(null); }} placeholder="10-digit mobile number" className="w-full rounded border border-amber-200 bg-white px-2 py-2 text-sm text-slate-800 outline-none focus:border-emerald-500" />
+                  {customerName.trim() && customerPhone.replace(/\D/g, "").length !== 10 && <p className="text-amber-800">Enter a valid 10-digit mobile number.</p>}
+                </div>
               )}
               {cart.length === 0 && (
                 <p className="rounded-md bg-amber-50 px-2 py-1.5 font-semibold text-amber-700">
@@ -2614,11 +2585,6 @@ export default function AddSalePage() {
               {cart.length > 0 && payable <= 0 && (
                 <p className="rounded-md bg-amber-50 px-2 py-1.5 font-semibold text-amber-700">
                   Final payable must be greater than zero.
-                </p>
-              )}
-              {pendingPayable !== null && (
-                <p className="rounded-md bg-amber-50 px-2 py-1.5 font-semibold text-amber-700">
-                  Sync the previous sale before checking out.
                 </p>
               )}
               {error && (
@@ -2634,9 +2600,8 @@ export default function AddSalePage() {
                 disabled={
                   submitting ||
                   cart.length === 0 ||
-                  !selectedCustomer ||
-                  payable <= 0 ||
-                  pendingPayable !== null
+                  (!selectedCustomer && (!customerName.trim() || customerPhone.replace(/\D/g, "").length !== 10)) ||
+                  payable <= 0
                 }
                 className="mt-2 w-full rounded-xl bg-emerald-600 px-4 py-3 text-sm font-extrabold tracking-wide text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-300"
               >
@@ -2698,10 +2663,15 @@ export default function AddSalePage() {
               )}
               {upiQrCode && <p className="mt-4 text-sm font-semibold text-slate-800">Open any UPI app and scan</p>}
               <p className="mt-1 text-xs text-slate-500">The QR code is linked to this exact bill amount.</p>
+              {!selectedCustomer && <div className="mx-auto mt-4 max-w-sm space-y-2 text-left">
+                <input aria-label="Customer name for checkout" autoComplete="name" value={customerName} onChange={(event) => { setCustomerName(event.target.value); setError(null); }} placeholder="Customer name" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-emerald-500" />
+                <input aria-label="Customer mobile number for checkout" type="tel" inputMode="numeric" maxLength={10} value={customerPhone} onChange={(event) => { setCustomerPhone(event.target.value.replace(/\D/g, "").slice(0, 10)); setError(null); }} placeholder="10-digit mobile number" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-emerald-500" />
+                {customerName.trim() && customerPhone.replace(/\D/g, "").length !== 10 && <p className="text-xs font-medium text-amber-700">Enter a valid 10-digit mobile number.</p>}
+              </div>}
               {process.env.NEXT_PUBLIC_UPI_ID && <p className="mt-3 text-[11px] font-medium text-slate-400">UPI ID: {process.env.NEXT_PUBLIC_UPI_ID}</p>}
               <button
                 type="button"
-                disabled={!upiQrCode || submitting || !selectedCustomer || cart.length === 0 || pendingPayable !== null}
+                disabled={!upiQrCode || submitting || (!selectedCustomer && (!customerName.trim() || customerPhone.replace(/\D/g, "").length !== 10)) || cart.length === 0}
                 onClick={() => {
                   const printWindow = window.open("", "_blank", "width=480,height=640");
                   void handleSubmit(true, true, printWindow);
@@ -2710,8 +2680,6 @@ export default function AddSalePage() {
               >
                 {submitting ? "Submitting bill…" : "Done · Submit & print bill"}
               </button>
-              {upiQrCode && !selectedCustomer && <p className="mt-2 text-xs font-medium text-amber-700">Select a customer before submitting this bill.</p>}
-              {pendingPayable !== null && <p className="mt-2 text-xs font-medium text-amber-700">Sync the previous sale before submitting another bill.</p>}
             </div>
           </section>
         </div>

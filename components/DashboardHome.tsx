@@ -20,6 +20,7 @@ import {
   LogOut,
   Plus,
   Printer,
+  ShoppingCart,
   TrendingUp,
   Users,
 } from "lucide-react";
@@ -183,6 +184,7 @@ export default function DashboardHome() {
   ];
 
   const quickActions: { label: string; href: string; icon: LucideIcon; gradient: string }[] = [
+    { label: "Sales", href: "/sales", icon: ShoppingCart, gradient: "from-[#0ea5e9] to-[#0369a1]" },
     { label: "New Entry", href: "/sales", icon: Plus, gradient: "from-[#22c55e] to-[#15803d]" },
     { label: "View Reports", href: "/sales-report", icon: BarChart3, gradient: "from-[#38bdf8] to-[#0284c7]" },
     { label: "Set Reminder", href: "/reminders", icon: Bell, gradient: "from-[#fb7185] to-[#e11d48]" },
@@ -431,7 +433,7 @@ export default function DashboardHome() {
 
         {/* Quick actions */}
         <footer className="mx-auto w-full max-w-5xl pb-2">
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
             {quickActions.map(({ label, href, icon: Icon, gradient }, index) => (
               <Link
                 key={label}

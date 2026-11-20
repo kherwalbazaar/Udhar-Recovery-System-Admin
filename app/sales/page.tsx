@@ -226,6 +226,8 @@ export default function AddSalePage() {
   const [missingBarcode, setMissingBarcode] = useState<string | null>(null);
   const [paymentMode, setPaymentMode] = useState<PaymentMode>("Cash");
   const [upiDialogOpen, setUpiDialogOpen] = useState(false);
+  const [checkoutOpen, setCheckoutOpen] = useState(false);
+  const [checkoutQuickPay, setCheckoutQuickPay] = useState(true);
   const [upiQrCode, setUpiQrCode] = useState<string | null>(null);
   const [upiQrError, setUpiQrError] = useState<string | null>(null);
   const [invoiceNo, setInvoiceNo] = useState<string | null>(null);
@@ -832,18 +834,21 @@ export default function AddSalePage() {
 
   const saveNewCustomer = () => {
     const name = customerName.trim();
-    const phone = customerPhone.trim();
     const address = customerAddress.trim();
-    if (!name || !phone) {
+    const phoneDigits = customerPhone.replace(/\D/g, "").slice(0, 10);
+    if (!name || !phoneDigits) {
       setCustomerSaveError("Enter the customer name and mobile number.");
       return;
     }
+    if (phoneDigits.length !== 10) {
+      setCustomerSaveError("Mobile number must be exactly 10 digits.");
+      return;
+    }
 
-    const phoneDigits = phone.replace(/\D/g, "");
     const existing = customers.find(
       (customer) =>
         customer.name.trim().toLowerCase() === name.toLowerCase() ||
-        (phoneDigits !== "" && customer.phone.replace(/\D/g, "") === phoneDigits)
+        customer.phone.replace(/\D/g, "") === phoneDigits
     );
     if (existing) {
       selectCustomer(existing);
@@ -853,7 +858,7 @@ export default function AddSalePage() {
 
     // Keep the new customer on this device. It is written to Firebase only when
     // the bill is completed, so a wrong entry never reaches the shared database.
-    const draft = saveLocalCustomerDraft({ name, phone, address });
+    const draft = saveLocalCustomerDraft({ name, phone: phoneDigits, address });
     const customer = draftToCustomer(draft);
     setCustomers((current) => [customer, ...current]);
     setCustomerSaveError(null);
@@ -1042,7 +1047,7 @@ export default function AddSalePage() {
         .payment{margin-top:4mm;padding-top:3mm;border-top:1px dashed #555;text-align:center}
         .payment img{display:block;width:46mm;height:46mm;margin:2mm auto;image-rendering:pixelated}
         .note{font-size:9px;line-height:1.4}.unconfigured{margin-top:3mm;font-size:9px}
-        </style></head><body><h1>KHERWAL BAZAAR</h1><div class="subtitle">Sales Bill</div><p class="meta">${invoiceNo ? `<strong>Bill No:</strong> ${escapeHtml(invoiceNo)}<br>` : ""}<strong>Customer:</strong> ${escapeHtml(selectedCustomer.name)}<br><strong>Mobile:</strong> ${escapeHtml(selectedCustomer.phone)}<br><strong>Date:</strong> ${escapeHtml(new Date().toLocaleString("en-IN"))}<br><strong>Payment:</strong> ${escapeHtml(paymentMode)}</p><table><thead><tr><th>Product</th><th class="center">Qty</th><th class="right">Amount</th></tr></thead><tbody>${rows}</tbody></table><div class="summary"><div><span>Product Amount</span><span>₹${fmt(subtotal)}</span></div><div><span>GST (${GST_RATE}%)</span><span>₹${fmt(gstAmount)}</span></div><div><span>CGST</span><span>₹${fmt(cgstAmount)}</span></div><div><span>Total</span><span>₹${fmt(totalWithTax)}</span></div><div><span>Discount</span><span>−₹${fmt(discount)}</span></div><div class="total"><span>Net Pay</span><span>₹${fmt(payable)}</span></div><div><span>Received</span><span>₹${fmt(received)}</span></div><div><span>Balance</span><span>₹${fmt(Math.max(0, payable - received))}</span></div></div>${qrCode ? `<div class="payment"><strong>Scan to Pay ₹${fmt(payable)}</strong><img src="${qrCode}" alt="UPI payment QR code"><div class="note">UPI ID: ${escapeHtml(upiId!)}<br>Thank you for shopping with us!</div></div>` : `<div class="payment unconfigured">UPI QR is unavailable. Configure NEXT_PUBLIC_UPI_ID to print payment QR codes.</div>`}</body></html>`);
+        </style></head><body><h1>KHERWAL BAZAAR</h1><div class="subtitle">Sales Bill</div><p class="meta">${invoiceNo ? `<strong>Bill No:</strong> ${escapeHtml(invoiceNo)}<br>` : ""}<strong>Customer:</strong> ${escapeHtml(selectedCustomer.name)}<br><strong>Mobile:</strong> ${escapeHtml(selectedCustomer.phone)}<br><strong>Date:</strong> ${escapeHtml(new Date().toLocaleString("en-IN"))}<br><strong>Payment:</strong> ${escapeHtml(paymentMode)}</p><table><thead><tr><th>Product</th><th class="center">Qty</th><th class="right">Amount</th></tr></thead><tbody>${rows}</tbody></table><div class="summary"><div><span>Product Amount</span><span>₹${fmt(subtotal)}</span></div><div><span>GST (${GST_RATE}%)</span><span>₹${fmt(gstAmount)}</span></div><div><span>Total</span><span>₹${fmt(totalWithTax)}</span></div><div><span>Discount</span><span>−₹${fmt(discount)}</span></div><div class="total"><span>Net Pay</span><span>₹${fmt(payable)}</span></div><div><span>Received</span><span>₹${fmt(received)}</span></div><div><span>Balance</span><span>₹${fmt(Math.max(0, payable - received))}</span></div></div>${qrCode ? `<div class="payment"><strong>Scan to Pay ₹${fmt(payable)}</strong><img src="${qrCode}" alt="UPI payment QR code"><div class="note">UPI ID: ${escapeHtml(upiId!)}<br>Thank you for shopping with us!</div></div>` : `<div class="payment unconfigured">UPI QR is unavailable. Configure NEXT_PUBLIC_UPI_ID to print payment QR codes.</div>`}</body></html>`);
       printWindow.document.close();
     } catch (printError) {
       printWindow.close();
@@ -1186,7 +1191,6 @@ export default function AddSalePage() {
           "",
           ...cart.map((item) => `${item.name} × ${item.qty} — ₹${fmt(item.sale * item.qty)}`),
           `GST (${GST_RATE}%): ₹${fmt(gstAmount)}`,
-          `CGST: ₹${fmt(cgstAmount)}`,
           `Total: ₹${fmt(totalWithTax)}`,
           `Discount: ₹${fmt(discount)}`,
           `Net Pay: ₹${fmt(finalPayable)}`,
@@ -1228,9 +1232,31 @@ export default function AddSalePage() {
     }
   };
 
+  // Cash bills get one last confirmation before anything is written to the database.
+  const requestCheckout = (quickPay = !receivedTouched) => {
+    if (submitting) return;
+    setCheckoutQuickPay(quickPay);
+    setCheckoutOpen(true);
+  };
+
+  const confirmCheckout = () => {
+    if (submitting) return;
+    setCheckoutOpen(false);
+    void handleSubmit(checkoutQuickPay);
+  };
+
+  const requestSubmit = (quickPay = false) => {
+    if (submitting) return;
+    if (paymentMode === "Cash") {
+      requestCheckout(quickPay);
+      return;
+    }
+    void handleSubmit(quickPay);
+  };
+
   // Keep the latest submit handler reachable from keyboard shortcuts
   useEffect(() => {
-    submitRef.current = handleSubmit;
+    submitRef.current = requestSubmit;
   });
 
   // Keyboard shortcuts for fast billing
@@ -1245,6 +1271,8 @@ export default function AddSalePage() {
       } else if (event.key === "F9") {
         event.preventDefault();
         submitRef.current?.(true);
+      } else if (event.key === "Escape" && checkoutOpen) {
+        setCheckoutOpen(false);
       } else if (event.key === "Escape" && upiDialogOpen) {
         setUpiDialogOpen(false);
       } else if (event.key === "Escape" && quickAddOpen) {
@@ -1253,7 +1281,7 @@ export default function AddSalePage() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [productTab, quickAddOpen, upiDialogOpen]);
+  }, [productTab, quickAddOpen, upiDialogOpen, checkoutOpen]);
 
   const retryPayableSync = useCallback(async () => {
     if (pendingPayable === null || syncingPayable) return;
@@ -1785,14 +1813,19 @@ export default function AddSalePage() {
                   <input
                     id="sales-customer-phone"
                     type="tel"
-                    inputMode="tel"
+                    inputMode="numeric"
+                    maxLength={10}
+                    pattern="[0-9]{10}"
                     aria-label="Mobile Number"
+                    aria-description="Exactly 10 digits"
                     value={customerPhone}
                     onChange={(event) => {
-                      setCustomerPhone(event.target.value);
+                      setCustomerPhone(
+                        event.target.value.replace(/\D/g, "").slice(0, 10)
+                      );
                       setCustomerSaveError(null);
                     }}
-                    placeholder="Mobile Number"
+                    placeholder="10-digit mobile number"
                     className="w-full border border-slate-300 bg-white px-3 py-2 text-xs outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
                   />
                 </div>
@@ -2153,7 +2186,6 @@ export default function AddSalePage() {
 
               <div className="space-y-1 text-slate-600 font-medium">
                 <div className="flex justify-between"><span>GST ({GST_RATE}%)</span><span>₹{fmt(gstAmount)}</span></div>
-                <div className="flex justify-between"><span>CGST</span><span>₹{fmt(cgstAmount)}</span></div>
                 <div className="flex justify-between"><span>Total</span><span>₹{fmt(totalWithTax)}</span></div>
                 <div className="flex justify-between"><span>Discount</span><span>−₹{fmt(discount)}</span></div>
               </div>
@@ -2255,7 +2287,7 @@ export default function AddSalePage() {
 
             <button
               type="button"
-              onClick={() => void handleSubmit(false)}
+              onClick={() => requestSubmit(false)}
               disabled={
                 submitting || cart.length === 0 || !selectedCustomer || pendingPayable !== null
               }
@@ -2314,19 +2346,6 @@ export default function AddSalePage() {
               <p className="text-xl font-bold text-green-700">₹{fmt(payable)}</p>
             </div>
             <label className="flex items-center gap-2 text-xs font-medium text-slate-600">
-              <span>CGST ₹</span>
-              <input
-                type="number"
-                min="0"
-                step="0.01"
-                value={cgstAmount}
-                onChange={(event) => setCgstAmount(Math.max(0, Number(event.target.value) || 0))}
-                disabled={submitting}
-                aria-label="CGST amount in rupees"
-                className="w-20 border border-slate-300 bg-white px-2 py-1.5 text-right text-sm font-semibold text-slate-800 disabled:bg-slate-100"
-              />
-            </label>
-            <label className="flex items-center gap-2 text-xs font-medium text-slate-600">
               <span>Received</span>
               <span className="flex items-center border border-slate-300 bg-white px-2">
                 <span className="text-slate-400">₹</span>
@@ -2354,6 +2373,7 @@ export default function AddSalePage() {
                       sessionTouchedRef.current = true;
                       setPaymentMode(label);
                       setUpiDialogOpen(label === "UPI");
+                      if (label === "Cash") requestCheckout();
                     }}
                     aria-pressed={paymentMode === label}
                     className={`inline-flex h-11 min-w-16 items-center justify-center gap-1.5 rounded-lg border px-3 text-xs font-bold shadow-sm transition-all duration-200 sm:h-12 sm:min-w-20 sm:gap-2 sm:px-4 sm:text-sm ${
@@ -2383,7 +2403,7 @@ export default function AddSalePage() {
             </label>
             <button
               type="button"
-              onClick={() => void handleSubmit(false)}
+              onClick={() => requestSubmit(false)}
               disabled={submitting || cart.length === 0 || !selectedCustomer || pendingPayable !== null}
               className="inline-flex items-center gap-1.5 rounded-md bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
             >
@@ -2392,7 +2412,7 @@ export default function AddSalePage() {
             </button>
             <button
               type="button"
-              onClick={() => void handleSubmit(true)}
+              onClick={() => requestSubmit(true)}
               disabled={submitting || cart.length === 0 || !selectedCustomer || pendingPayable !== null}
               className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
             >
@@ -2417,6 +2437,131 @@ export default function AddSalePage() {
         )}
       </div>
       <div aria-hidden="true" className="h-28" />
+
+      {checkoutOpen && (
+        <div
+          className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setCheckoutOpen(false);
+          }}
+        >
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="checkout-dialog-title"
+            className="w-full max-w-sm overflow-hidden rounded-2xl border border-white/70 bg-white shadow-2xl ring-1 ring-black/10 animate-toast-in"
+          >
+            <div className="relative overflow-hidden bg-gradient-to-br from-emerald-600 via-teal-600 to-cyan-700 px-5 pb-5 pt-5 text-white">
+              <div className="absolute -right-10 -top-14 h-40 w-40 rounded-full bg-white/10" />
+              <div className="relative flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-emerald-100">
+                    Final confirmation
+                  </p>
+                  <h2 id="checkout-dialog-title" className="mt-1 text-xl font-extrabold tracking-wide">
+                    CHECK OUT
+                  </h2>
+                  <p className="mt-1 text-xs text-emerald-50">
+                    Cash payment · {invoiceNo ?? "New bill"}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setCheckoutOpen(false)}
+                  aria-label="Close check out popup"
+                  className="rounded-xl p-2 text-white/80 transition hover:bg-white/15 hover:text-white"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+              <p className="relative mt-4 text-3xl font-extrabold tracking-tight">₹{fmt(payable)}</p>
+            </div>
+
+            <div className="space-y-2 px-5 py-4 text-xs text-slate-600">
+              <div className="flex justify-between gap-3">
+                <span>Customer</span>
+                <span className="truncate font-semibold text-slate-800">
+                  {selectedCustomer?.name || customerName.trim() || "—"}
+                </span>
+              </div>
+              <div className="flex justify-between gap-3">
+                <span>Mobile</span>
+                <span className="font-semibold text-slate-800">
+                  {selectedCustomer?.phone || customerPhone || "—"}
+                </span>
+              </div>
+              <div className="flex justify-between gap-3">
+                <span>Items</span>
+                <span className="font-semibold text-slate-800">
+                  {cart.reduce((sum, item) => sum + item.qty, 0)}
+                </span>
+              </div>
+              <div className="flex justify-between gap-3">
+                <span>Amount received</span>
+                <span className="font-semibold text-slate-800">
+                  ₹{fmt(checkoutQuickPay ? payable : received)}
+                </span>
+              </div>
+              <div className="flex justify-between gap-3">
+                <span>Change</span>
+                <span className="font-semibold text-emerald-600">
+                  ₹{fmt(Math.max(0, (checkoutQuickPay ? payable : received) - payable))}
+                </span>
+              </div>
+
+              {!selectedCustomer && (
+                <p className="rounded-md bg-amber-50 px-2 py-1.5 font-semibold text-amber-700">
+                  Select a customer before checking out.
+                </p>
+              )}
+              {cart.length === 0 && (
+                <p className="rounded-md bg-amber-50 px-2 py-1.5 font-semibold text-amber-700">
+                  Add at least one product before checking out.
+                </p>
+              )}
+              {cart.length > 0 && payable <= 0 && (
+                <p className="rounded-md bg-amber-50 px-2 py-1.5 font-semibold text-amber-700">
+                  Final payable must be greater than zero.
+                </p>
+              )}
+              {pendingPayable !== null && (
+                <p className="rounded-md bg-amber-50 px-2 py-1.5 font-semibold text-amber-700">
+                  Sync the previous sale before checking out.
+                </p>
+              )}
+              {error && (
+                <p className="flex items-start gap-1.5 rounded-md bg-red-50 px-2 py-1.5 font-semibold text-red-600">
+                  <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                  <span>{error}</span>
+                </p>
+              )}
+
+              <button
+                type="button"
+                onClick={confirmCheckout}
+                disabled={
+                  submitting ||
+                  cart.length === 0 ||
+                  !selectedCustomer ||
+                  payable <= 0 ||
+                  pendingPayable !== null
+                }
+                className="mt-2 w-full rounded-xl bg-emerald-600 px-4 py-3 text-sm font-extrabold tracking-wide text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+              >
+                {submitting ? "Saving bill…" : "CHECK OUT"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setCheckoutOpen(false)}
+                disabled={submitting}
+                className="w-full rounded-xl border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:opacity-50"
+              >
+                Go back
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
 
       {upiDialogOpen && (
         <div

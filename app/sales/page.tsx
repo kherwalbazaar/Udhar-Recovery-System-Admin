@@ -108,6 +108,8 @@ const PAYMENT_MODES: { label: PaymentMode; icon: typeof Banknote }[] = [
 const DRAFT_KEY = "udhar_sales_draft_v1";
 const INVOICE_SEQ_KEY = "udhar_sales_invoice_seq_v1";
 const DRAFT_MAX_AGE_MS = PENDING_BILL_MAX_AGE_MS;
+const MAX_OPEN_BILLS = 5;
+const BILL_LIMIT_MESSAGE = `Maximum ${MAX_OPEN_BILLS} bills allowed at a time. Close a bill to create another.`;
 
 type SalesDraft = {
   cart: CartItem[];
@@ -704,6 +706,10 @@ export default function AddSalePage() {
   };
 
   const handleStartAddBill = () => {
+    if (billTabs.length >= MAX_OPEN_BILLS) {
+      showToast("warning", BILL_LIMIT_MESSAGE);
+      return;
+    }
     setEditingBillId(null);
     setCustomerName("");
     setCustomerPhone("");
@@ -774,6 +780,12 @@ export default function AddSalePage() {
     }
 
     // Creating a new bill with this customer
+    if (billTabs.length >= MAX_OPEN_BILLS) {
+      showToast("warning", BILL_LIMIT_MESSAGE);
+      setIsAddingBill(false);
+      setEditingBillId(null);
+      return;
+    }
     const nextNum = billTabs.reduce((max, b) => {
       const match = b.title?.match(/Bill\s*(\d+)/i);
       return match ? Math.max(max, parseInt(match[1], 10)) : max;
@@ -1467,6 +1479,10 @@ export default function AddSalePage() {
       showToast("warning", "Add at least one product before saving this bill.");
       return;
     }
+    if (!activeBillIdRef.current && billTabs.length >= MAX_OPEN_BILLS) {
+      showToast("warning", BILL_LIMIT_MESSAGE);
+      return;
+    }
     setPendingAction(true);
     try {
       const id = activeBillIdRef.current ?? makeBillId();
@@ -1552,6 +1568,8 @@ export default function AddSalePage() {
       setPendingAction(false);
     }
   };
+
+  const billLimitReached = billTabs.length >= MAX_OPEN_BILLS;
 
   return (
     <AppShell title="" active="Sales">
@@ -1681,11 +1699,27 @@ export default function AddSalePage() {
                 <button
                   type="button"
                   onClick={handleStartAddBill}
-                  title="Create new bill"
-                  className="inline-flex items-center gap-1 rounded-lg border border-dashed border-blue-500 bg-blue-50 px-3 py-1.5 text-xs font-bold text-blue-700 transition hover:bg-blue-100 active:scale-95"
+                  title={
+                    billLimitReached
+                      ? `Maximum ${MAX_OPEN_BILLS} bills allowed. Close a bill to add another.`
+                      : "Create new bill"
+                  }
+                  aria-disabled={billLimitReached}
+                  className={`inline-flex items-center gap-1 rounded-lg border px-3 py-1.5 text-xs font-bold transition active:scale-95 ${
+                    billLimitReached
+                      ? "cursor-not-allowed border-slate-300 bg-slate-100 text-slate-400"
+                      : "border-dashed border-blue-500 bg-blue-50 text-blue-700 hover:bg-blue-100"
+                  }`}
                 >
                   <Plus className="h-3.5 w-3.5" />
                   <span>Add Bill</span>
+                  <span
+                    className={`rounded px-1 text-[9px] font-bold ${
+                      billLimitReached ? "bg-slate-200 text-slate-500" : "bg-blue-200/70 text-blue-800"
+                    }`}
+                  >
+                    {billTabs.length}/{MAX_OPEN_BILLS}
+                  </span>
                 </button>
               </div>
             </div>

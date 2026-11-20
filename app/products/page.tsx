@@ -53,7 +53,8 @@ const DEFAULT_CATEGORIES = [
   "UR Image", "LUX", "Lungi", "Saree", "Half Pants", "Ganji",
 ];
 
-type EditableColumn = "name" | "purchase" | "barcode" | "mrp" | "sale" | "size";
+type EditableColumn = "name" | "purchase" | "barcode" | "mrp" | "sale" | "size" | "stock";
+type ProductSort = "name" | "oldest" | "newest" | "price-low" | "price-high" | "stock-low" | "stock-high";
 
 const editableColumns: Record<EditableColumn, { label: string; numeric: boolean }> = {
   name: { label: "Product name", numeric: false },
@@ -62,6 +63,7 @@ const editableColumns: Record<EditableColumn, { label: string; numeric: boolean 
   mrp: { label: "MRP", numeric: true },
   sale: { label: "Sale price", numeric: true },
   size: { label: "Size", numeric: false },
+  stock: { label: "Quantity", numeric: true },
 };
 
 function parseCsv(text: string): string[][] {
@@ -161,9 +163,10 @@ export default function ProductPage() {
   const [listLoading, setListLoading] = useState(true);
   const [listError, setListError] = useState<string | null>(null);
   const [listQuery, setListQuery] = useState("");
+  const [productSort, setProductSort] = useState<ProductSort>("name");
   const [showForm, setShowForm] = useState(false);
   const [isAddingRow, setIsAddingRow] = useState(false);
-  const [newRow, setNewRow] = useState({ name: "", purchase: "", barcode: "", mrp: "", sale: "", size: "" });
+  const [newRow, setNewRow] = useState({ name: "", purchase: "", barcode: "", mrp: "", sale: "", size: "", stock: "" });
   const [newRowError, setNewRowError] = useState<string | null>(null);
   const [savingNewRow, setSavingNewRow] = useState(false);
   const [editingCell, setEditingCell] = useState<{ name: string; field: EditableColumn } | null>(null);
@@ -185,6 +188,7 @@ export default function ProductPage() {
   const newRowMrpInputRef = useRef<HTMLInputElement>(null);
   const newRowSaleInputRef = useRef<HTMLInputElement>(null);
   const newRowSizeInputRef = useRef<HTMLInputElement>(null);
+  const newRowStockInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -220,6 +224,7 @@ export default function ProductPage() {
       mrp: "",
       sale: "",
       size: "",
+      stock: "",
     });
     setNewRowError(null);
     setIsAddingRow(true);
@@ -426,10 +431,14 @@ export default function ProductPage() {
     const mrpValue = Number(newRow.mrp);
     const saleValue = Number(newRow.sale);
     const purchaseValue = newRow.purchase === "" ? undefined : Number(newRow.purchase);
+    const stockValue = newRow.stock.trim() === "" ? undefined : Number(newRow.stock);
     if (!Number.isFinite(mrpValue) || mrpValue <= 0) return setNewRowError("Enter a valid MRP greater than zero.");
     if (!Number.isFinite(saleValue) || saleValue <= 0) return setNewRowError("Enter a valid sale price greater than zero.");
     if (purchaseValue !== undefined && (!Number.isFinite(purchaseValue) || purchaseValue < 0)) {
       return setNewRowError("Enter a valid purchase price.");
+    }
+    if (stockValue !== undefined && (!Number.isInteger(stockValue) || stockValue < 0)) {
+      return setNewRowError("Enter a whole quantity of zero or more.");
     }
 
     setSavingNewRow(true);
@@ -443,6 +452,7 @@ export default function ProductPage() {
         sale: saleValue,
         cost: purchaseValue,
         unit: newRow.size.trim() || undefined,
+        stock: stockValue,
         active: true,
         trackStock: true,
         createdAt: Date.now(),
@@ -450,7 +460,7 @@ export default function ProductPage() {
       await saveProduct(record);
       showToast("success", `${productName} added successfully!`);
       setIsAddingRow(false);
-      setNewRow({ name: "", purchase: "", barcode: "", mrp: "", sale: "", size: "" });
+      setNewRow({ name: "", purchase: "", barcode: "", mrp: "", sale: "", size: "", stock: "" });
       setProductList((current) => [
         ...current.filter((item) => item.name !== productName),
         {
@@ -507,6 +517,8 @@ export default function ProductPage() {
         return product.sale != null ? String(product.sale) : record?.sale != null ? String(record.sale) : "";
       case "size":
         return record?.unit ?? product.unit ?? "";
+      case "stock":
+        return product.stock != null ? String(product.stock) : record?.stock != null ? String(record.stock) : "";
       default:
         return "";
     }
@@ -591,6 +603,16 @@ export default function ProductPage() {
         next.sale = value;
         break;
       }
+      case "stock": {
+        if (draft === "") {
+          delete next.stock;
+          break;
+        }
+        const value = Number(draft);
+        if (!Number.isInteger(value) || value < 0) return fail("Enter a whole quantity of zero or more.");
+        next.stock = value;
+        break;
+      }
       case "barcode": {
         if (draft) next.barcode = draft;
         else delete next.barcode;
@@ -620,6 +642,7 @@ export default function ProductPage() {
               sale: next.sale,
               cost: next.cost,
               unit: next.unit,
+              stock: next.stock,
             }
           : item
       )
@@ -638,13 +661,29 @@ export default function ProductPage() {
 
   const filteredProductList = useMemo(() => {
     const q = listQuery.trim().toLowerCase();
-    if (!q) return productList;
-    return productList.filter(
+    const matching = !q ? productList : productList.filter(
       (p) =>
         p.name.toLowerCase().includes(q) ||
         (p.barcode ?? "").toLowerCase().includes(q)
     );
-  }, [productList, listQuery]);
+    return [...matching].sort((a, b) => {
+      let difference = 0;
+      if (productSort === "oldest" || productSort === "newest") {
+        const aDate = productRecordFor(a.name)?.createdAt ?? 0;
+        const bDate = productRecordFor(b.name)?.createdAt ?? 0;
+        difference = productSort === "oldest" ? aDate - bDate : bDate - aDate;
+      } else if (productSort === "price-low" || productSort === "price-high") {
+        const aPrice = a.sale ?? productRecordFor(a.name)?.sale ?? 0;
+        const bPrice = b.sale ?? productRecordFor(b.name)?.sale ?? 0;
+        difference = productSort === "price-low" ? aPrice - bPrice : bPrice - aPrice;
+      } else if (productSort === "stock-low" || productSort === "stock-high") {
+        const aStock = a.stock ?? productRecordFor(a.name)?.stock ?? 0;
+        const bStock = b.stock ?? productRecordFor(b.name)?.stock ?? 0;
+        difference = productSort === "stock-low" ? aStock - bStock : bStock - aStock;
+      }
+      return difference || a.name.localeCompare(b.name);
+    });
+  }, [productList, listQuery, productSort, allProducts]);
 
   const addProductSource = (() => {
     const recentAsProducts: ProductRecord[] = recent.map((r) => ({
@@ -995,7 +1034,7 @@ export default function ProductPage() {
             aria-label={config.label}
             type={config.numeric ? "number" : "text"}
             min={config.numeric ? "0" : undefined}
-            step={config.numeric ? "0.01" : undefined}
+            step={config.numeric ? (field === "stock" ? "1" : "0.01") : undefined}
             value={cellDraft}
             onChange={(event) => setCellDraft(event.target.value)}
             onFocus={(event) => event.currentTarget.select()}
@@ -1010,12 +1049,12 @@ export default function ProductPage() {
                 event.currentTarget.blur();
               }
             }}
-            className={`w-full min-w-20 bg-yellow-100 px-2 py-2 text-xs outline-none ring-1 ring-inset ring-blue-500 ${
+            className={`w-full min-w-0 bg-yellow-100 px-1 py-2 text-[10px] outline-none ring-1 ring-inset ring-blue-500 sm:px-2 sm:text-xs ${
               config.numeric ? "text-right" : ""
             }`}
           />
         ) : (
-          <span className="block cursor-text px-3 py-2">{content}</span>
+          <span className="block min-w-0 truncate px-1 py-2 sm:px-2" title={typeof content === "string" ? content : undefined}>{content}</span>
         )}
         {error && (
           <span className="block max-w-56 px-2 pb-1 text-[10px] font-semibold leading-tight text-red-600">
@@ -1386,24 +1425,41 @@ export default function ProductPage() {
         </div>
       )}
 
-      {!showForm && <div className="-mx-4 -mt-4 -mb-4 flex min-h-[calc(100vh-4rem)] flex-col border border-slate-300 bg-white p-3 shadow-sm">
-        <div className="mb-2 flex flex-wrap items-center justify-between gap-2 border-b border-slate-300 pb-2">
-          <div className="flex w-full flex-wrap items-center gap-3 xl:w-auto">
+      {!showForm && <div className="-mx-4 -mt-4 -mb-4 flex min-h-[calc(100vh-4rem)] min-w-0 max-w-full flex-col overflow-hidden border border-slate-300 bg-white p-3 shadow-sm">
+        <div className="mb-2 flex min-w-max flex-nowrap items-center justify-between gap-3 overflow-x-auto border-b border-slate-300 pb-2">
+          <div className="flex flex-none items-center gap-3">
             <div className="flex items-center gap-1.5 text-base font-bold text-slate-800">
               <PageBackButton />
               <Boxes className="h-5 w-5 text-emerald-700" />
               <span>All Products ({productList.length})</span>
             </div>
-            <div className="relative w-full sm:w-64">
+            <div className="relative w-56 flex-none">
               <span className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-slate-400"><Search className="w-3.5 h-3.5" /></span>
               <input type="text" value={listQuery} onChange={(e) => setListQuery(e.target.value)} placeholder="Search by name or barcode" className="w-full text-xs bg-slate-50 border border-slate-200 rounded-lg pl-9 pr-3 py-2 focus:outline-none focus:ring-1 focus:ring-blue-500" />
             </div>
+            <label className="flex flex-none items-center gap-2 whitespace-nowrap text-xs font-semibold text-slate-600">
+              Sort
+              <select
+                value={productSort}
+                onChange={(event) => setProductSort(event.target.value as ProductSort)}
+                aria-label="Sort products"
+                className="h-9 rounded-lg border border-slate-300 bg-slate-50 px-2 text-xs font-medium text-slate-700 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+              >
+                <option value="name">Name (A–Z)</option>
+                <option value="oldest">Oldest first</option>
+                <option value="newest">Newest first</option>
+                <option value="price-low">Price: Low to High</option>
+                <option value="price-high">Price: High to Low</option>
+                <option value="stock-low">Stock: Low to High</option>
+                <option value="stock-high">Stock: High to Low</option>
+              </select>
+            </label>
           </div>
-          <div className="flex w-full flex-wrap items-center justify-end gap-3 xl:w-auto">
+          <div className="flex flex-none items-center justify-end gap-2">
             <button type="button" onClick={() => {
               if (isAddingRow) { setIsAddingRow(false); setNewRowError(null); }
               else {
-                setNewRow({ name: "", purchase: "", barcode: "", mrp: "", sale: "", size: "" });
+      setNewRow({ name: "", purchase: "", barcode: "", mrp: "", sale: "", size: "", stock: "" });
                 setNewRowError(null);
                 setIsAddingRow(true);
                 requestAnimationFrame(() => newRowNameInputRef.current?.focus());
@@ -1416,39 +1472,52 @@ export default function ProductPage() {
           </div>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-auto border border-slate-300">
-          <table className="w-full min-w-[1120px] border-collapse text-left">
+        <div className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto border border-slate-300">
+          <table className="w-full min-w-0 table-fixed border-collapse text-left">
+            <colgroup>
+              <col className="w-[18%]" />
+              <col className="w-[10%]" />
+              <col className="w-[13%]" />
+              <col className="w-[8%]" />
+              <col className="w-[8%]" />
+              <col className="w-[7%]" />
+              <col className="w-[6%]" />
+              <col className="w-[10%]" />
+              <col className="w-[8%]" />
+              <col className="w-[12%]" />
+            </colgroup>
             <thead className="sticky top-0 z-10 bg-slate-100">
-              <tr className="text-[11px] text-slate-700">
-                <th className="sticky left-0 z-20 min-w-56 border border-slate-300 bg-slate-100 px-3 py-2 font-semibold">Product</th>
-                <th className="min-w-28 border border-slate-300 px-3 py-2 text-right font-semibold">Purchase (₹)</th>
-                <th className="min-w-44 border border-slate-300 px-3 py-2 font-semibold">Barcode</th>
-                <th className="min-w-28 border border-slate-300 px-3 py-2 text-right font-semibold">MRP (₹)</th>
-                <th className="min-w-28 border border-slate-300 px-3 py-2 text-right font-semibold">Sale (₹)</th>
-                <th className="min-w-24 border border-slate-300 px-3 py-2 font-semibold">Size</th>
-                <th className="min-w-28 border border-slate-300 px-2 py-2 text-center font-semibold">Update</th>
-                <th className="min-w-20 border border-slate-300 px-2 py-2 text-center font-semibold">Delete</th>
-                <th className="min-w-28 border border-slate-300 px-2 py-2 text-center font-semibold">Barcode</th>
+              <tr className="text-[9px] text-slate-700 sm:text-[11px]">
+                <th className="sticky left-0 z-20 border border-slate-300 bg-slate-100 px-1 py-2 font-semibold sm:px-2">Product</th>
+                <th className="border border-slate-300 px-1 py-2 text-right font-semibold sm:px-2">Purchase (₹)</th>
+                <th className="border border-slate-300 px-1 py-2 font-semibold sm:px-2">Barcode</th>
+                <th className="border border-slate-300 px-1 py-2 text-right font-semibold sm:px-2">MRP (₹)</th>
+                <th className="border border-slate-300 px-1 py-2 text-right font-semibold sm:px-2">Sale (₹)</th>
+                <th className="border border-slate-300 px-1 py-2 font-semibold sm:px-2">Size</th>
+                <th className="border border-slate-300 px-1 py-2 text-right font-semibold sm:px-2">Qty</th>
+                <th className="border border-slate-300 px-1 py-2 text-center font-semibold sm:px-2">Update</th>
+                <th className="border border-slate-300 px-1 py-2 text-center font-semibold sm:px-2">Delete</th>
+                <th className="border border-slate-300 px-1 py-2 text-center font-semibold sm:px-2">Barcode</th>
               </tr>
             </thead>
             <tbody className="text-xs">
               {listLoading && !isAddingRow && (
                 <tr>
-                  <td colSpan={9} className="py-6 text-center text-slate-400">
+                  <td colSpan={10} className="py-6 text-center text-slate-400">
                     Loading products...
                   </td>
                 </tr>
               )}
               {!listLoading && listError && !isAddingRow && (
                 <tr>
-                  <td colSpan={9} className="py-6 text-center text-red-500">
+                  <td colSpan={10} className="py-6 text-center text-red-500">
                     {listError}
                   </td>
                 </tr>
               )}
               {!listLoading && !listError && filteredProductList.length === 0 && !isAddingRow && (
                 <tr>
-                  <td colSpan={9} className="py-6 text-center text-slate-400">
+                  <td colSpan={10} className="py-6 text-center text-slate-400">
                     No products found.
                   </td>
                 </tr>
@@ -1470,7 +1539,7 @@ export default function ProductPage() {
                           }
                         }}
                         placeholder="Product name"
-                        className="w-full min-w-44 bg-transparent px-2 py-2 text-xs outline-none focus:bg-white focus:ring-1 focus:ring-inset focus:ring-blue-500"
+                        className="w-full min-w-0 bg-transparent px-1 py-2 text-[10px] outline-none focus:bg-white focus:ring-1 focus:ring-inset focus:ring-blue-500 sm:px-2 sm:text-xs"
                       />
                     </td>
                     <td className="border border-slate-300 p-0">
@@ -1492,7 +1561,7 @@ export default function ProductPage() {
                           }
                         }}
                         placeholder="Purchase"
-                        className="w-full min-w-24 bg-transparent px-2 py-2 text-right text-xs outline-none focus:bg-white focus:ring-1 focus:ring-inset focus:ring-blue-500"
+                        className="w-full min-w-0 bg-transparent px-1 py-2 text-right text-[10px] outline-none focus:bg-white focus:ring-1 focus:ring-inset focus:ring-blue-500 sm:px-2 sm:text-xs"
                       />
                     </td>
                     <td className="border border-slate-300 p-0">
@@ -1508,7 +1577,7 @@ export default function ProductPage() {
                           }
                         }}
                         placeholder="Barcode (optional)"
-                        className="w-full min-w-40 bg-transparent px-2 py-2 text-xs outline-none focus:bg-white focus:ring-1 focus:ring-inset focus:ring-blue-500"
+                        className="w-full min-w-0 bg-transparent px-1 py-2 text-[10px] outline-none focus:bg-white focus:ring-1 focus:ring-inset focus:ring-blue-500 sm:px-2 sm:text-xs"
                       />
                     </td>
                     <td className="border border-slate-300 p-0">
@@ -1527,7 +1596,7 @@ export default function ProductPage() {
                           }
                         }}
                         placeholder="MRP"
-                        className="w-full min-w-24 bg-transparent px-2 py-2 text-right text-xs outline-none focus:bg-white focus:ring-1 focus:ring-inset focus:ring-blue-500"
+                        className="w-full min-w-0 bg-transparent px-1 py-2 text-right text-[10px] outline-none focus:bg-white focus:ring-1 focus:ring-inset focus:ring-blue-500 sm:px-2 sm:text-xs"
                       />
                     </td>
                     <td className="border border-slate-300 p-0">
@@ -1546,7 +1615,7 @@ export default function ProductPage() {
                           }
                         }}
                         placeholder="Sale"
-                        className="w-full min-w-24 bg-transparent px-2 py-2 text-right text-xs outline-none focus:bg-white focus:ring-1 focus:ring-inset focus:ring-blue-500"
+                        className="w-full min-w-0 bg-transparent px-1 py-2 text-right text-[10px] outline-none focus:bg-white focus:ring-1 focus:ring-inset focus:ring-blue-500 sm:px-2 sm:text-xs"
                       />
                     </td>
                     <td className="border border-slate-300 p-0">
@@ -1558,11 +1627,30 @@ export default function ProductPage() {
                         onKeyDown={(event) => {
                           if (event.key === "Enter") {
                             event.preventDefault();
-                            void saveNewProductRow();
+                            newRowStockInputRef.current?.focus();
                           }
                         }}
                         placeholder="Size"
-                        className="w-full min-w-20 bg-transparent px-2 py-2 text-xs outline-none focus:bg-white focus:ring-1 focus:ring-inset focus:ring-blue-500"
+                        className="w-full min-w-0 bg-transparent px-1 py-2 text-[10px] outline-none focus:bg-white focus:ring-1 focus:ring-inset focus:ring-blue-500 sm:px-2 sm:text-xs"
+                      />
+                    </td>
+                    <td className="border border-slate-300 p-0">
+                      <input
+                        ref={newRowStockInputRef}
+                        aria-label="Quantity"
+                        type="number"
+                        min="0"
+                        step="1"
+                        value={newRow.stock}
+                        onChange={(event) => setNewRow((row) => ({ ...row, stock: event.target.value }))}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter") {
+                            event.preventDefault();
+                            void saveNewProductRow();
+                          }
+                        }}
+                        placeholder="Qty"
+                        className="w-full min-w-0 bg-transparent px-1 py-2 text-right text-[10px] outline-none focus:bg-white focus:ring-1 focus:ring-inset focus:ring-blue-500 sm:px-2 sm:text-xs"
                       />
                     </td>
                     <td className="border border-slate-300 p-1">
@@ -1573,7 +1661,7 @@ export default function ProductPage() {
                     </td>
                     <td className="border border-slate-300 px-2 text-center text-slate-300">—</td>
                   </tr>
-                  {newRowError && <tr><td colSpan={9} className="border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">{newRowError}</td></tr>}
+                  {newRowError && <tr><td colSpan={10} className="border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">{newRowError}</td></tr>}
                 </>
               )}
               {!listLoading &&
@@ -1623,21 +1711,27 @@ export default function ProductPage() {
                         size || missingDataCell,
                         "text-slate-600"
                       )}
-                      <td className="border border-slate-200 px-1 py-1">
-                        <button type="button" onClick={() => selectProductToForm(p)} className="w-full border border-slate-300 bg-white px-2 py-1.5 text-[10px] font-semibold text-blue-700 hover:bg-blue-50">Update</button>
+                      {editableCell(
+                        p,
+                        "stock",
+                        p.stock != null ? fmt(p.stock) : record?.stock != null ? fmt(record.stock) : missingDataCell,
+                        "text-right tabular-nums text-slate-700"
+                      )}
+                      <td className="border border-slate-200 px-0.5 py-1 sm:px-1">
+                        <button type="button" onClick={() => selectProductToForm(p)} className="w-full whitespace-normal border border-slate-300 bg-white px-0.5 py-1.5 text-[8px] font-semibold leading-tight text-blue-700 hover:bg-blue-50 sm:px-2 sm:text-[10px]">Update</button>
                       </td>
-                      <td className="border border-slate-200 px-1 py-1">
+                      <td className="border border-slate-200 px-0.5 py-1 sm:px-1">
                         {p.inCatalog ? (
-                          <button type="button" onClick={() => handleDeleteList(p)} className="w-full border border-slate-300 bg-white px-2 py-1.5 text-[10px] font-semibold text-red-600 hover:bg-red-50">Delete</button>
+                          <button type="button" onClick={() => handleDeleteList(p)} className="w-full whitespace-normal border border-slate-300 bg-white px-0.5 py-1.5 text-[8px] font-semibold leading-tight text-red-600 hover:bg-red-50 sm:px-2 sm:text-[10px]">Delete</button>
                         ) : (
-                          <button type="button" disabled className="w-full border border-slate-200 bg-slate-50 px-2 py-1.5 text-[10px] font-semibold text-slate-300">Delete</button>
+                          <button type="button" disabled className="w-full whitespace-normal border border-slate-200 bg-slate-50 px-0.5 py-1.5 text-[8px] font-semibold leading-tight text-slate-300 sm:px-2 sm:text-[10px]">Delete</button>
                         )}
                       </td>
-                      <td className="border border-slate-200 px-1 py-1">
+                      <td className="border border-slate-200 px-0.5 py-1 sm:px-1">
                         {barcode ? (
-                          <button type="button" onClick={() => handlePrintProductBarcode(p)} className="w-full border border-slate-300 bg-white px-2 py-1.5 text-[10px] font-semibold text-slate-700 hover:bg-slate-50" title={`Print barcode tag for ${p.name}`}>Print</button>
+                          <button type="button" onClick={() => handlePrintProductBarcode(p)} className="w-full whitespace-normal border border-slate-300 bg-white px-0.5 py-1.5 text-[8px] font-semibold leading-tight text-slate-700 hover:bg-slate-50 sm:px-2 sm:text-[10px]" title={`Print barcode tag for ${p.name}`}>Print</button>
                         ) : (
-                          <button type="button" onClick={() => void handleGenerateQR(p)} disabled={generatingQrFor === p.name} className="w-full border border-slate-300 bg-white px-2 py-1.5 text-[10px] font-semibold text-emerald-700 hover:bg-emerald-50 disabled:opacity-50" title={`Generate and save a QR code for ${p.name}`}>{generatingQrFor === p.name ? "Generating..." : "Generate"}</button>
+                          <button type="button" onClick={() => void handleGenerateQR(p)} disabled={generatingQrFor === p.name} className="w-full whitespace-normal border border-slate-300 bg-white px-0.5 py-1.5 text-[8px] font-semibold leading-tight text-emerald-700 hover:bg-emerald-50 disabled:opacity-50 sm:px-2 sm:text-[10px]" title={`Generate and save a QR code for ${p.name}`}>{generatingQrFor === p.name ? "Generating..." : "Generate"}</button>
                         )}
                       </td>
                     </tr>

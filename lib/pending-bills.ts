@@ -34,7 +34,7 @@ export type PendingBill = {
   completedAt?: number;
 };
 
-export const PENDING_BILL_MAX_AGE_MS = 30 * 60 * 1000; // 30 minutes
+export const PENDING_BILL_MAX_AGE_MS = 20 * 60 * 1000; // 20 minutes
 
 export function isPendingBillExpired(bill: { updatedAt?: number }): boolean {
   if (!bill?.updatedAt) return true;

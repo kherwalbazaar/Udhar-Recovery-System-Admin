@@ -159,9 +159,18 @@ export default function KhataPage() {
   }, []);
 
   useEffect(() => {
-    if (data && data.customers.length > 0 && !selectedId) {
-      setSelectedId(data.customers[0].id);
+    if (!data) return;
+    const requestedCustomerId = new URLSearchParams(window.location.search).get("customer");
+    const requestedCustomer = requestedCustomerId
+      ? data.customers.find((customer) => customer.id === requestedCustomerId)
+      : undefined;
+    if (requestedCustomer) {
+      setSelectedId(requestedCustomer.id);
+      setSearch(requestedCustomer.name);
+      window.history.replaceState(null, "", window.location.pathname);
+      return;
     }
+    if (data.customers.length > 0 && !selectedId) setSelectedId(data.customers[0].id);
   }, [data, selectedId]);
 
   const selected: KhataCustomer | undefined = useMemo(

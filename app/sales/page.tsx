@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState, useRef, type KeyboardEvent } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   ShoppingCart,
   UserPlus,
@@ -12,10 +13,8 @@ import {
   Plus,
   X,
   AlertCircle,
-  Printer,
   Banknote,
   QrCode,
-  CreditCard,
   PackagePlus,
   Keyboard,
   TrendingUp,
@@ -44,6 +43,8 @@ import {
   saveLocalCustomerDraft,
 } from "@/lib/local-customers";
 import { saveProduct } from "@/lib/products";
+import { createThermalReceiptPdf } from "@/lib/thermal-receipt-pdf";
+import { sendReceiptAutomatically } from "@/lib/whatsapp-receipts";
 import { CACHE_KEYS, readCache } from "@/lib/cache";
 import {
   completePendingBill,
@@ -95,12 +96,21 @@ const fmt = (n: number) =>
 
 const GST_RATE = 18;
 
-type PaymentMode = "Cash" | "UPI" | "Card" | "Credit";
+type PaymentMode = "Cash" | "UPI" | "Credit";
+type ReceiptDeliveryStatus = "Automatically Sent" | "Manual Sending" | "Sent" | "Failed";
+type ReceiptDelivery = {
+  status: ReceiptDeliveryStatus;
+  pdf: Blob | null;
+  fileName: string;
+  customerName: string;
+  customerPhone: string;
+  whatsappUrl: string;
+  error?: string;
+};
 
 const PAYMENT_MODES: { label: PaymentMode; icon: typeof Banknote }[] = [
   { label: "Cash", icon: Banknote },
   { label: "UPI", icon: QrCode },
-  { label: "Card", icon: CreditCard },
   { label: "Credit", icon: Wallet },
 ];
 
@@ -187,6 +197,7 @@ function writeDraft(draft: SalesDraft | null) {
 
 export default function AddSalePage() {
   const { showToast, confirmAction } = useToast();
+  const router = useRouter();
   const [products, setProducts] = useState<Product[]>([]);
   const [productsLoading, setProductsLoading] = useState(true);
   const [customers, setCustomers] = useState<CustomerSummary[]>([]);
@@ -206,7 +217,8 @@ export default function AddSalePage() {
   const [cgstAmount, setCgstAmount] = useState(0);
   const [received, setReceived] = useState(0);
   const [receivedTouched, setReceivedTouched] = useState(false);
-  const [autoSendWhatsapp, setAutoSendWhatsapp] = useState(false);
+  const [autoSendWhatsapp, setAutoSendWhatsapp] = useState(true);
+  const [receiptDelivery, setReceiptDelivery] = useState<ReceiptDelivery | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [quickAddOpen, setQuickAddOpen] = useState(false);
@@ -456,13 +468,13 @@ export default function AddSalePage() {
     return () => { active = false; };
   }, [showToast]);
 
-  // Reset all pending bills and active drafts after 30 minutes of inactivity
+  // Reset all pending bills and active drafts after 20 minutes of inactivity
   useEffect(() => {
     const timer = window.setInterval(() => {
       const now = Date.now();
       const currentActiveId = activeBillIdRef.current;
 
-      // 1. Check if the active draft has exceeded 30 minutes
+      // 1. Check if the active draft has exceeded 20 minutes
       const rawDraft = typeof window !== "undefined" ? localStorage.getItem(DRAFT_KEY) : null;
       if (rawDraft) {
         try {
@@ -474,7 +486,7 @@ export default function AddSalePage() {
               deleteLocalPendingBill(currentActiveId);
             }
             resetSession();
-            showToast("info", "Bill was reset after 30 minutes of inactivity.");
+            showToast("info", "Bill was reset after 20 minutes of inactivity.");
           }
         } catch {}
       }
@@ -490,7 +502,7 @@ export default function AddSalePage() {
             deleteLocalPendingBill(bill.id);
             if (bill.id === currentActiveId) {
               resetSession();
-              showToast("info", "Pending bill was reset after 30 minutes.");
+              showToast("info", "Pending bill was reset after 20 minutes.");
             }
           } else {
             valid.push(bill);
@@ -613,6 +625,9 @@ export default function AddSalePage() {
   const discount = Number((gstAmount + cgstAmount).toFixed(2));
   const totalWithTax = subtotal + gstAmount + cgstAmount;
   const payable = Math.ceil(Math.max(0, Number((totalWithTax - discount).toFixed(2))));
+  const upiPaymentAmount = paymentMode === "UPI" && receivedTouched && received > 0
+    ? Math.min(received, payable)
+    : payable;
 
   useEffect(() => {
     if (!receivedTouched) setReceived(selectedCustomer ? 0 : payable);
@@ -635,7 +650,7 @@ export default function AddSalePage() {
     const params = new URLSearchParams({
       pa: upiId,
       pn: process.env.NEXT_PUBLIC_UPI_NAME?.trim() || "KHERWAL BAZAAR",
-      am: payable.toFixed(2),
+      am: upiPaymentAmount.toFixed(2),
       cu: "INR",
       tn: invoiceNo ? `Bill ${invoiceNo}` : "Kherwal Bazaar sale",
     });
@@ -649,7 +664,7 @@ export default function AddSalePage() {
       if (active) setUpiQrError(qrError instanceof Error ? qrError.message : "Could not create the UPI QR code.");
     });
     return () => { active = false; };
-  }, [upiDialogOpen, payable, invoiceNo]);
+  }, [upiDialogOpen, upiPaymentAmount, invoiceNo]);
 
   const addToCart = (product: Product) => {
     sessionTouchedRef.current = true;
@@ -998,7 +1013,11 @@ export default function AddSalePage() {
   };
 
   const handlePrintReceipt = async (preopenedWindow?: Window | null) => {
-    if (!selectedCustomer || cart.length === 0) return;
+    if (cart.length === 0) return;
+    if (!selectedCustomer) {
+      showToast("warning", "Add customer details before printing the bill.");
+      return;
+    }
     if (payable <= 0) {
       showToast("warning", "The bill total must be greater than zero to make a payment QR.");
       return;
@@ -1024,7 +1043,7 @@ export default function AddSalePage() {
       const paymentParams = new URLSearchParams({
         pa: upiId || "",
         pn: upiName,
-        am: payable.toFixed(2),
+        am: upiPaymentAmount.toFixed(2),
         cu: "INR",
         tn: `Sale for ${selectedCustomer.name}`,
       });
@@ -1036,7 +1055,7 @@ export default function AddSalePage() {
           })
         : null;
       const rows = cart.map((item) => `
-        <tr><td>${escapeHtml(item.name)}</td><td class="center">${item.qty}</td><td class="right">₹${fmt(item.sale * item.qty)}</td></tr>
+        <tr><td class="bold">${escapeHtml(item.name)}</td><td class="right">${item.qty}</td><td class="right">${item.sale.toFixed(2)}</td><td class="right">${(item.sale * item.qty).toFixed(2)}</td></tr>
       `).join("");
       printWindow.onload = () => printWindow.print();
       printWindow.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Sales Bill</title><style>
@@ -1050,13 +1069,15 @@ export default function AddSalePage() {
         table{width:100%;border-collapse:collapse}
         th,td{padding:1.4mm 0;border-bottom:1px dashed #777;vertical-align:top}
         th{text-align:left;font-size:10px}
+        .header-red th{color:#dc2626;font-weight:bold}
+        .bold{font-weight:bold}
         .center{text-align:center}.right{text-align:right;white-space:nowrap}
         .summary{margin-top:2mm}.summary div{display:flex;justify-content:space-between;padding:.8mm 0}
-        .total{margin-top:1mm;padding-top:1.5mm;border-top:1px solid #000;font-size:14px;font-weight:800}
+        .total{margin-top:1mm;padding-top:1.5mm;border-top:1px solid #000;font-size:14px;font-weight:800;color:#dc2626}
         .payment{margin-top:4mm;padding-top:3mm;border-top:1px dashed #555;text-align:center}
         .payment img{display:block;width:46mm;height:46mm;margin:2mm auto;image-rendering:pixelated}
         .note{font-size:9px;line-height:1.4}.unconfigured{margin-top:3mm;font-size:9px}
-        </style></head><body><h1>KHERWAL BAZAAR</h1><div class="subtitle">Sales Bill</div><p class="meta">${invoiceNo ? `<strong>Bill No:</strong> ${escapeHtml(invoiceNo)}<br>` : ""}<strong>Customer:</strong> ${escapeHtml(selectedCustomer.name)}<br><strong>Mobile:</strong> ${escapeHtml(selectedCustomer.phone)}<br><strong>Date:</strong> ${escapeHtml(new Date().toLocaleString("en-IN"))}<br><strong>Payment:</strong> ${escapeHtml(paymentMode)}</p><table><thead><tr><th>Product</th><th class="center">Qty</th><th class="right">Amount</th></tr></thead><tbody>${rows}</tbody></table><div class="summary"><div><span>Product Amount</span><span>₹${fmt(subtotal)}</span></div><div><span>GST (${GST_RATE}%)</span><span>₹${fmt(gstAmount)}</span></div><div><span>Total</span><span>₹${fmt(totalWithTax)}</span></div><div><span>Discount</span><span>−₹${fmt(discount)}</span></div><div class="total"><span>Net Pay</span><span>₹${fmt(payable)}</span></div><div><span>Received</span><span>₹${fmt(received)}</span></div><div><span>Balance</span><span>₹${fmt(Math.max(0, payable - received))}</span></div></div>${qrCode ? `<div class="payment"><strong>Scan to Pay ₹${fmt(payable)}</strong><img src="${qrCode}" alt="UPI payment QR code"><div class="note">UPI ID: ${escapeHtml(upiId!)}<br>Thank you for shopping with us!</div></div>` : `<div class="payment unconfigured">UPI QR is unavailable. Configure NEXT_PUBLIC_UPI_ID to print payment QR codes.</div>`}</body></html>`);
+        </style></head><body><h1>KHERWAL BAZAAR</h1><div class="subtitle">Sales Bill</div><p class="meta">${invoiceNo ? `<strong>Bill No:</strong> ${escapeHtml(invoiceNo)}<br>` : ""}<strong>Customer:</strong> ${escapeHtml(selectedCustomer.name)}<br><strong>Mobile:</strong> ${escapeHtml(selectedCustomer.phone)}<br><strong>Date:</strong> ${escapeHtml(new Date().toLocaleString("en-IN"))}<br><strong>Payment:</strong> ${escapeHtml(paymentMode)}</p><table><thead><tr class="header-red"><th>Item</th><th class="right">Quantity</th><th class="right">Unit Price</th><th class="right">Total</th></tr></thead><tbody>${rows}</tbody></table><div class="summary"><div><span>Product Amount</span><span>₹${fmt(subtotal)}</span></div><div><span>GST (${GST_RATE}%)</span><span>₹${fmt(gstAmount)}</span></div><div><span>Total</span><span>₹${fmt(totalWithTax)}</span></div><div><span>Discount</span><span>−₹${fmt(discount)}</span></div><div class="total"><span>NET PAY</span><span>INR ${fmt(payable)}</span></div><div><span>Received</span><span>₹${fmt(received)}</span></div><div><span>Balance</span><span>₹${fmt(Math.max(0, payable - received))}</span></div></div>${qrCode ? `<div class="payment"><strong>Scan to Pay ₹${fmt(upiPaymentAmount)}</strong><img src="${qrCode}" alt="UPI payment QR code"><div class="note">UPI ID: ${escapeHtml(upiId!)}<br>Thank you for shopping with us!</div></div>` : `<div class="payment unconfigured">UPI QR is unavailable. Configure NEXT_PUBLIC_UPI_ID to print payment QR codes.</div>`}</body></html>`);
       printWindow.document.close();
     } catch (printError) {
       printWindow.close();
@@ -1064,10 +1085,23 @@ export default function AddSalePage() {
     }
   };
 
+  const downloadReceiptPdf = (pdf: Blob, fileName: string) => {
+    const objectUrl = URL.createObjectURL(pdf);
+    const link = document.createElement("a");
+    link.href = objectUrl;
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+  };
+
   const handleSubmit = async (
     quickPay = false,
     printAfterSubmit = false,
     preopenedPrintWindow?: Window | null,
+    redirectToKhata = false,
+    paymentModeOverride?: PaymentMode,
   ) => {
     if (submitting) return;
     if (!selectedCustomer && (!customerName.trim() || customerPhone.replace(/\D/g, "").length !== 10)) {
@@ -1075,11 +1109,18 @@ export default function AddSalePage() {
       return;
     }
     if (cart.length === 0) return;
+    const salePaymentMode = paymentModeOverride ?? paymentMode;
     const finalPayable = Number(payable.toFixed(2));
     if (finalPayable <= 0) {
       setError("Final payable must be greater than zero to sync with the QR amount.");
       return;
     }
+
+    // Open a blank tab directly from the checkout click so browsers do not
+    // block the later redirect while Firebase saves the sale.
+    const whatsappWindow = autoSendWhatsapp
+      ? window.open("about:blank", "_blank")
+      : null;
 
     // A customer saved on this device is written to Firebase together with the
     // bill, so the shared customer list only gets customers that really bought.
@@ -1130,10 +1171,6 @@ export default function AddSalePage() {
       setReceived(receivedAmount);
       setReceivedTouched(true);
     }
-    const whatsappWindow = autoSendWhatsapp
-      ? window.open("about:blank", "_blank")
-      : null;
-
     setSubmitting(true);
     setError(null);
     try {
@@ -1144,10 +1181,10 @@ export default function AddSalePage() {
           sale: i.sale,
           qty: i.qty,
         })),
-        saleType: selectedCustomer ? "credit" : "cash",
+        saleType: salePaymentMode === "Credit" || selectedCustomer ? "credit" : "cash",
         customer: saleCustomer,
         received: receivedAmount,
-        paymentMethod: paymentMode,
+        paymentMethod: salePaymentMode,
         invoiceNo: invoiceNo ?? undefined,
         idempotencyKey: activeBillId ?? undefined,
       });
@@ -1155,6 +1192,107 @@ export default function AddSalePage() {
       if (printAfterSubmit) {
         await handlePrintReceipt(preopenedPrintWindow);
         setUpiDialogOpen(false);
+      }
+
+      const receiptCreatedAt = new Date();
+      const fileSafeInvoice = (invoiceNo || `bill-${Date.now()}`).replace(/[^a-z0-9-_]/gi, "-");
+      const receiptFileName = `${fileSafeInvoice}.pdf`;
+      const customerDigits = saleCustomer.phone.replace(/\D/g, "");
+      const whatsappPhone = customerDigits.length === 10
+        ? `91${customerDigits}`
+        : customerDigits.startsWith("0") && customerDigits.length === 11
+          ? `91${customerDigits.slice(1)}`
+          : customerDigits;
+      const receiptMessage = [
+        `Hello ${saleCustomer.name},`,
+        "Your Kherwal Bazaar bill receipt is ready.",
+        ...(invoiceNo ? [`Bill No: ${invoiceNo}`] : []),
+        `Net Pay: INR ${fmt(finalPayable)}`,
+      ].join("\n");
+      const deliveryBase = {
+        fileName: receiptFileName,
+        customerName: saleCustomer.name,
+        customerPhone: saleCustomer.phone,
+        whatsappUrl: `https://wa.me/${whatsappPhone}?text=${encodeURIComponent(receiptMessage)}`,
+      };
+      let receiptPdf: Blob | null = null;
+      try {
+        receiptPdf = createThermalReceiptPdf({
+          billNumber: invoiceNo,
+          customerName: saleCustomer.name,
+          customerPhone: saleCustomer.phone,
+          createdAt: receiptCreatedAt,
+          paymentMode: salePaymentMode,
+          items: cart.map((item) => ({ name: item.name, quantity: item.qty, unitPrice: item.sale })),
+          subtotal,
+          gst: gstAmount,
+          total: totalWithTax,
+          discount,
+          payable: finalPayable,
+          received: receivedAmount,
+        });
+      } catch (pdfError) {
+        console.error("Failed to create the bill receipt PDF", pdfError);
+      }
+
+      if (!receiptPdf) {
+        setReceiptDelivery({
+          ...deliveryBase,
+          status: "Failed",
+          pdf: null,
+          error: "The sale was saved, but the receipt PDF could not be generated.",
+        });
+      } else {
+        // Automatically download the PDF receipt upon checkout
+        downloadReceiptPdf(receiptPdf, receiptFileName);
+
+        if (!whatsappPhone) {
+          setReceiptDelivery({
+            ...deliveryBase,
+            status: "Manual Sending",
+            pdf: receiptPdf,
+            error: "Sale saved and PDF downloaded. No 10-digit mobile number for WhatsApp sharing.",
+          });
+        } else {
+          const delivery: ReceiptDelivery = {
+            ...deliveryBase,
+            status: "Manual Sending",
+            pdf: receiptPdf,
+          };
+          setReceiptDelivery(delivery);
+          if (autoSendWhatsapp) {
+            const startManualFallback = () => {
+              try {
+                if (whatsappWindow && !whatsappWindow.closed) {
+                  whatsappWindow.location.href = delivery.whatsappUrl;
+                } else {
+                  showToast("warning", "WhatsApp could not open automatically. Use the manual receipt action below.");
+                }
+                setReceiptDelivery({ ...delivery, status: "Manual Sending" });
+              } catch (deliveryError) {
+                console.error("Could not start manual WhatsApp receipt sharing", deliveryError);
+                setReceiptDelivery({
+                  ...delivery,
+                  status: "Failed",
+                  error: "Sale saved. The PDF is ready, but WhatsApp could not open. Allow pop-ups and try again.",
+                });
+              }
+            };
+            void sendReceiptAutomatically({
+              phone: whatsappPhone,
+              fileName: receiptFileName,
+              pdf: receiptPdf,
+              caption: receiptMessage,
+            }).then((automaticStatus) => {
+              if (automaticStatus === "sent") {
+                whatsappWindow?.close();
+                setReceiptDelivery({ ...delivery, status: "Automatically Sent" });
+              } else {
+                startManualFallback();
+              }
+            }).catch(() => startManualFallback());
+          }
+        }
       }
 
       const completedBillId = activeBillIdRef.current;
@@ -1202,43 +1340,16 @@ export default function AddSalePage() {
         }
       }
 
-      if (autoSendWhatsapp && saleCustomer.phone.trim()) {
-        const digits = saleCustomer.phone.replace(/\D/g, "");
-        const whatsappPhone = digits.length === 10
-          ? `91${digits}`
-          : digits.startsWith("0") && digits.length === 11
-            ? `91${digits.slice(1)}`
-            : digits;
-        const message = [
-          "*KHERWAL BAZAAR*",
-          "Sale receipt",
-          ...(invoiceNo ? [`Bill No: ${invoiceNo}`] : []),
-          `Customer: ${saleCustomer.name}`,
-          "",
-          ...cart.map((item) => `${item.name} × ${item.qty} — ₹${fmt(item.sale * item.qty)}`),
-          `GST (${GST_RATE}%): ₹${fmt(gstAmount)}`,
-          `Total: ₹${fmt(totalWithTax)}`,
-          `Discount: ₹${fmt(discount)}`,
-          `Net Pay: ₹${fmt(finalPayable)}`,
-          `Payment Mode: ${paymentMode}`,
-          `Received: ₹${fmt(receivedAmount)}`,
-          `Balance: ₹${fmt(Math.max(0, finalPayable - receivedAmount))}`,
-        ].join("\n");
-        const whatsappUrl = `https://wa.me/${whatsappPhone}?text=${encodeURIComponent(message)}`;
-        if (whatsappWindow && !whatsappWindow.closed) {
-          whatsappWindow.location.href = whatsappUrl;
-        } else {
-          showToast("warning", "Allow pop-ups to open the WhatsApp receipt.");
-        }
-      }
-
       setCustomerName("");
       setCustomerPhone("");
       setCustomerAddress("");
       setCustomerSaveError(null);
       setCustomerFormOpen(false);
-      setAutoSendWhatsapp(false);
+      setAutoSendWhatsapp(true);
       showToast("success", "Sale added successfully!");
+      if (redirectToKhata) {
+        router.push(`/customers?customer=${encodeURIComponent(saleCustomer.id)}`);
+      }
     } catch (e) {
       preopenedPrintWindow?.close();
       whatsappWindow?.close();
@@ -1248,8 +1359,7 @@ export default function AddSalePage() {
     }
   };
 
-  // Cash bills ask for the received amount first, then get one last confirmation
-  // before anything is written to the database.
+  // Cash and UPI bills record the received amount before continuing checkout.
   const openReceivedDialog = () => {
     if (submitting) return;
     const starting = receivedTouched && received > 0 ? received : payable;
@@ -1262,7 +1372,8 @@ export default function AddSalePage() {
     setReceived(amount);
     setReceivedTouched(true);
     setReceivedDialogOpen(false);
-    setCheckoutOpen(true);
+    if (paymentMode === "UPI") setUpiDialogOpen(true);
+    else setCheckoutOpen(true);
   };
 
   const confirmCheckout = () => {
@@ -1273,7 +1384,7 @@ export default function AddSalePage() {
     }
     setError(null);
     setCheckoutOpen(false);
-    void handleSubmit(false);
+    void handleSubmit(false, false, undefined, paymentMode === "Credit", paymentMode);
   };
 
   const requestSubmit = (quickPay = false) => {
@@ -1662,18 +1773,58 @@ export default function AddSalePage() {
         </div>
       </div>
 
+      {receiptDelivery && (
+        <section
+          role="status"
+          aria-live="polite"
+          className={`flex flex-wrap items-center justify-between gap-3 rounded-xl border p-3 text-xs ${
+            receiptDelivery.status === "Failed"
+              ? "border-red-200 bg-red-50 text-red-800"
+              : receiptDelivery.status === "Sent" || receiptDelivery.status === "Automatically Sent"
+                ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                : "border-amber-200 bg-amber-50 text-amber-900"
+          }`}
+        >
+          <div className="min-w-0">
+            <p className="font-bold">WhatsApp receipt · {receiptDelivery.status}</p>
+            <p className="mt-0.5">{receiptDelivery.error || `PDF receipt for ${receiptDelivery.customerName} (${receiptDelivery.customerPhone}) is ready.`}</p>
+            {receiptDelivery.status === "Manual Sending" && <p className="mt-0.5">WhatsApp chat opened and the PDF was downloaded. In WhatsApp, attach the PDF with <strong>Attach → Document</strong>, then tap the send icon. WhatsApp does not let this app attach a file to the chat automatically.</p>}
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            {receiptDelivery.pdf && (
+              <button
+                type="button"
+                onClick={() => downloadReceiptPdf(receiptDelivery.pdf!, receiptDelivery.fileName)}
+                className="rounded-lg border border-current/20 bg-white px-3 py-2 font-semibold hover:bg-white/80"
+              >
+                Download PDF
+              </button>
+            )}
+            {receiptDelivery.status === "Manual Sending" && (
+              <button
+                type="button"
+                onClick={() => setReceiptDelivery((current) => current ? { ...current, status: "Sent" } : current)}
+                className="rounded-lg border border-current/20 bg-white px-3 py-2 font-semibold hover:bg-white/80"
+              >
+                Mark as Sent
+              </button>
+            )}
+          </div>
+        </section>
+      )}
+
       <div suppressHydrationWarning className="grid grid-cols-12 gap-4">
         {/* LEFT SECTION: FORM AND PRODUCT SELECTION */}
         <div className="col-span-12 space-y-2">
           {/* Customer Section */}
           <div suppressHydrationWarning className="bg-white rounded-none p-4 border border-slate-200">
             <div
-              className={`flex flex-wrap items-center gap-2 ${
+              className={`flex flex-nowrap items-center gap-2 ${
                 isAddingBill ? "border-b border-slate-100 pb-2 mb-3" : ""
               }`}
             >
               {/* Bill Tabs */}
-              <div className="flex items-center gap-1.5 overflow-x-auto" role="tablist" aria-label="Customer Bills">
+              <div className="min-w-0 flex-1 flex items-center gap-1.5 overflow-x-auto" role="tablist" aria-label="Customer Bills">
                 {billTabs.map((bill, index) => {
                   const isActive = bill.id === activeBillId;
                   const label = bill.name ? `Bill ${index + 1} (${bill.name})` : bill.title || `Bill ${index + 1}`;
@@ -1765,6 +1916,18 @@ export default function AddSalePage() {
                   </span>
                 </button>
               </div>
+              <label className={`ml-auto inline-flex flex-none items-center gap-2 whitespace-nowrap text-xs font-medium ${
+                (selectedCustomer?.phone || customerPhone).trim() ? "text-slate-700" : "text-slate-400"
+              }`}>
+                <input
+                  type="checkbox"
+                  checked={autoSendWhatsapp}
+                  onChange={(event) => setAutoSendWhatsapp(event.target.checked)}
+                  disabled={submitting || !(selectedCustomer?.phone || customerPhone).trim()}
+                  className="h-4 w-4 accent-green-600"
+                />
+                Send Bill via WhatsApp
+              </label>
             </div>
 
             {isAddingBill && (
@@ -2044,7 +2207,7 @@ export default function AddSalePage() {
                       <td className="border border-slate-300 px-2 py-2 text-slate-600">{item.barcode || "—"}</td>
                       <td className="border border-slate-300 px-2 py-2 text-right text-slate-600">{fmt(item.mrp)}</td>
                       <td className="border border-slate-300 px-2 py-2 text-right">
-                        <input aria-label={`Sale price for ${item.name}`} type="number" min="0" value={item.sale} onChange={(event) => setItemSale(item.name, event.target.value)} className="w-20 border border-slate-200 px-1 py-1 text-right" />
+                        <input aria-label={`Sale price for ${item.name}`} type="number" min="0" step="10" value={item.sale} onChange={(event) => setItemSale(item.name, event.target.value)} className="w-20 border border-slate-200 px-1 py-1 text-right" />
                       </td>
                       <td className="border border-slate-300 px-2 py-2 text-center">
                         <input aria-label={`Quantity for ${item.name}`} type="number" min="1" value={item.qty} onChange={(event) => setItemQty(item.name, event.target.value)} className="w-14 border border-slate-200 px-1 py-1 text-center" />
@@ -2129,6 +2292,8 @@ export default function AddSalePage() {
                         </button>
                         <input
                           type="number"
+                          min="0"
+                          step="10"
                           value={item.sale}
                           onChange={(e) =>
                             setItemSale(item.name, e.target.value)
@@ -2332,79 +2497,40 @@ export default function AddSalePage() {
               <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Net Pay</p>
               <p className="text-xl font-bold text-green-700">₹{fmt(payable)}</p>
             </div>
-            <div>
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Payment</p>
-              <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Payment mode">
-                {PAYMENT_MODES.map(({ label, icon: Icon }) => (
-                  <button
-                    key={label}
-                    type="button"
-                    onClick={() => {
-                      sessionTouchedRef.current = true;
-                      setPaymentMode(label);
-                      setUpiDialogOpen(label === "UPI");
-                      if (label === "Cash") openReceivedDialog();
-                    }}
-                    aria-pressed={paymentMode === label}
-                    className={`inline-flex h-11 min-w-16 items-center justify-center gap-1.5 rounded-lg border px-3 text-xs font-bold shadow-sm transition-all duration-200 sm:h-12 sm:min-w-20 sm:gap-2 sm:px-4 sm:text-sm ${
-                      paymentMode === label
-                        ? "border-emerald-600 bg-emerald-600 text-white shadow-emerald-200 ring-2 ring-emerald-200"
-                        : "border-slate-300 bg-white text-slate-700 hover:border-emerald-300 hover:bg-emerald-50"
-                    }`}
-                  >
-                    <Icon className="h-4 w-4 sm:h-5 sm:w-5" aria-hidden="true" />
-                    {label}
-                  </button>
-                ))}
-              </div>
-            </div>
           </div>
 
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            <label className={`flex items-center gap-2 text-xs font-medium ${selectedCustomer?.phone.trim() ? "text-slate-700" : "text-slate-400"}`}>
-              <input
-                type="checkbox"
-                checked={autoSendWhatsapp}
-                onChange={(event) => setAutoSendWhatsapp(event.target.checked)}
-                disabled={submitting || !selectedCustomer?.phone.trim()}
-                className="h-4 w-4 accent-green-600"
-              />
-              Auto Send WhatsApp
-            </label>
-            <button
-              type="button"
-              onClick={() => requestSubmit(false)}
-              disabled={submitting || cart.length === 0}
-              className="inline-flex items-center gap-1.5 rounded-md bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <Wallet className="h-4 w-4" />
-              {submitting ? "Paying..." : "Pay"}
-            </button>
-            <button
-              type="button"
-              onClick={() => requestSubmit(true)}
-              disabled={submitting || cart.length === 0}
-              className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <Check className="h-4 w-4" />
-              Quick Pay
-            </button>
-            <button
-              type="button"
-              onClick={() => void handlePrintReceipt()}
-              disabled={cart.length === 0 || !selectedCustomer}
-              className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <Printer className="h-4 w-4" />
-              Bill Print
-            </button>
+          <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+            <span className="mr-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500">Payment</span>
+            <div className="flex flex-wrap items-center justify-end gap-2" role="group" aria-label="Payment mode">
+              {PAYMENT_MODES.map(({ label, icon: Icon }) => (
+                <button
+                  key={label}
+                  type="button"
+                  disabled={submitting || cart.length === 0}
+                  onClick={() => {
+                    sessionTouchedRef.current = true;
+                    setPaymentMode(label);
+                    setUpiDialogOpen(false);
+                    if (label === "Cash" || label === "UPI") openReceivedDialog();
+                    if (label === "Credit") {
+                      setReceived(0);
+                      setReceivedTouched(false);
+                      setError(null);
+                      setCheckoutOpen(true);
+                    }
+                  }}
+                  aria-pressed={paymentMode === label}
+                  className={`inline-flex h-11 min-w-16 items-center justify-center gap-1.5 rounded-lg border border-emerald-700 bg-emerald-600 px-3 text-xs font-bold text-white shadow-sm transition-all duration-200 hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-40 sm:h-12 sm:min-w-20 sm:gap-2 sm:px-4 sm:text-sm ${
+                    paymentMode === label ? "ring-2 ring-emerald-300 ring-offset-2" : ""
+                  }`}
+                >
+                  <Icon className="h-4 w-4 sm:h-5 sm:w-5" aria-hidden="true" />
+                  {label}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
-        {autoSendWhatsapp && (
-          <p className="mt-2 text-right text-[10px] text-slate-500">
-            WhatsApp opens with the receipt ready; review it and tap Send to share.
-          </p>
-        )}
       </div>
       <div aria-hidden="true" className="h-28" />
 
@@ -2424,7 +2550,7 @@ export default function AddSalePage() {
             <div className="flex items-start justify-between gap-3 bg-gradient-to-br from-emerald-600 to-teal-700 px-5 py-4 text-white">
               <div>
                 <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-emerald-100">
-                  Cash payment
+                  {paymentMode} payment
                 </p>
                 <h2 id="received-dialog-title" className="mt-1 text-lg font-extrabold">
                   Received
@@ -2443,7 +2569,7 @@ export default function AddSalePage() {
 
             <div className="px-5 py-4">
               <label htmlFor="cash-received-input" className="block text-[11px] font-semibold text-slate-600">
-                Amount received
+                {paymentMode === "UPI" ? "Final UPI amount" : "Amount received"}
               </label>
               <div className="mt-1 flex items-center rounded-xl border border-slate-300 bg-white px-3 focus-within:border-emerald-500 focus-within:ring-1 focus-within:ring-emerald-500">
                 <span className="text-lg font-bold text-slate-400">₹</span>
@@ -2466,7 +2592,9 @@ export default function AddSalePage() {
                 />
               </div>
               <p className="mt-2 text-[11px] font-medium text-slate-500">
-                Change ₹{fmt(Math.max(0, (Number(receivedInput) || 0) - payable))}
+                {paymentMode === "UPI"
+                  ? "This amount will be encoded in the UPI QR code."
+                  : `Change ₹${fmt(Math.max(0, (Number(receivedInput) || 0) - payable))}`}
               </p>
 
               <div className="mt-4 flex gap-2">
@@ -2475,7 +2603,7 @@ export default function AddSalePage() {
                   onClick={confirmReceived}
                   className="flex-1 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-bold text-white transition hover:bg-emerald-700"
                 >
-                  Received
+                  {paymentMode === "UPI" ? "Continue to UPI" : "Received"}
                 </button>
                 <button
                   type="button"
@@ -2514,7 +2642,7 @@ export default function AddSalePage() {
                     CHECK OUT
                   </h2>
                   <p className="mt-1 text-xs text-emerald-50">
-                    Cash payment · {invoiceNo ?? "New bill"}
+                    {paymentMode} payment · {invoiceNo ?? "New bill"}
                   </p>
                 </div>
                 <button
@@ -2622,32 +2750,34 @@ export default function AddSalePage() {
 
       {upiDialogOpen && (
         <div
-          className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/55 p-4 backdrop-blur-sm"
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/55 p-2 backdrop-blur-sm sm:p-4"
           onMouseDown={(event) => { if (event.target === event.currentTarget) setUpiDialogOpen(false); }}
         >
-          <section role="dialog" aria-modal="true" aria-labelledby="upi-dialog-title" className="w-full max-w-md overflow-hidden rounded-3xl border border-white/70 bg-white shadow-2xl ring-1 ring-black/10 animate-toast-in">
-            <div className="relative overflow-hidden bg-gradient-to-br from-emerald-600 via-teal-600 to-cyan-700 px-6 pb-7 pt-6 text-white">
+          <section role="dialog" aria-modal="true" aria-labelledby="upi-dialog-title" className="max-h-[calc(100dvh-1rem)] w-full max-w-md overflow-hidden rounded-3xl border border-white/70 bg-white shadow-2xl ring-1 ring-black/10 animate-toast-in sm:max-h-[calc(100dvh-2rem)]">
+            <div className="relative overflow-hidden bg-gradient-to-br from-emerald-600 via-teal-600 to-cyan-700 px-4 py-3 text-white sm:px-6 sm:py-4">
               <div className="absolute -right-10 -top-16 h-44 w-44 rounded-full bg-white/10" />
-              <div className="relative flex items-start justify-between gap-4">
-                <div>
-                  <span className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-white/15 ring-1 ring-white/20"><QrCode className="h-5 w-5" /></span>
-                  <h2 id="upi-dialog-title" className="mt-4 text-lg font-bold">Scan to pay with UPI</h2>
-                  <p className="mt-1 text-sm text-emerald-50">Kherwal Bazaar · {invoiceNo ?? "New bill"}</p>
+              <div className="relative flex items-center justify-between gap-2">
+                <div className="flex min-w-0 items-center gap-3">
+                  <span className="inline-flex h-10 w-10 flex-none items-center justify-center rounded-2xl bg-white/15 ring-1 ring-white/20"><QrCode className="h-5 w-5" /></span>
+                  <div className="min-w-0">
+                    <h2 id="upi-dialog-title" className="text-base font-bold sm:text-lg">Scan to pay with UPI</h2>
+                    <p className="truncate text-xs text-emerald-50 sm:text-sm">Kherwal Bazaar · {invoiceNo ?? "New bill"}</p>
+                  </div>
                 </div>
-                <button type="button" onClick={() => setUpiDialogOpen(false)} aria-label="Close UPI payment popup" className="rounded-xl p-2 text-white/80 transition hover:bg-white/15 hover:text-white"><X className="h-5 w-5" /></button>
-              </div>
-              <div className="relative mt-5 flex items-end justify-between gap-3">
-                <div>
-                  <p className="text-xs font-medium uppercase tracking-[0.16em] text-emerald-100">Bill total</p>
-                  <p className="mt-1 text-4xl font-extrabold tracking-tight">₹{fmt(payable)}</p>
+                <div className="flex flex-none items-center gap-1">
+                  <div className="text-right">
+                    <p className="text-[9px] font-medium uppercase tracking-[0.12em] text-emerald-100 sm:text-xs">UPI amount</p>
+                    <p className="text-2xl font-extrabold tracking-tight sm:text-3xl">₹{fmt(upiPaymentAmount)}</p>
+                  </div>
+                  <button type="button" onClick={() => setUpiDialogOpen(false)} aria-label="Close UPI payment popup" className="rounded-xl p-2 text-white/80 transition hover:bg-white/15 hover:text-white"><X className="h-5 w-5" /></button>
                 </div>
-                {selectedCustomer && <p className="max-w-36 truncate rounded-full bg-white/15 px-3 py-1.5 text-xs font-semibold ring-1 ring-white/20">{selectedCustomer.name}</p>}
               </div>
+              {selectedCustomer && <p className="relative mt-1 truncate text-[10px] text-emerald-50">{selectedCustomer.name}</p>}
             </div>
-            <div className="p-6 text-center">
+            <div className="p-3 text-center sm:p-4">
               {upiQrCode ? (
-                <div className="mx-auto w-fit rounded-3xl border border-slate-100 bg-white p-3 shadow-[0_12px_35px_rgba(15,23,42,0.12)]">
-                  <img src={upiQrCode} alt={`UPI payment QR code for ₹${fmt(payable)}`} className="h-56 w-56 sm:h-64 sm:w-64" />
+                <div className="mx-auto w-fit rounded-3xl border border-slate-100 bg-white p-1.5 shadow-[0_12px_35px_rgba(15,23,42,0.12)] sm:p-2">
+                  <img src={upiQrCode} alt={`UPI payment QR code for ₹${fmt(upiPaymentAmount)}`} className="h-[min(14rem,36dvh)] w-[min(14rem,36dvh)] sm:h-[min(15rem,40dvh)] sm:w-[min(15rem,40dvh)] lg:h-[min(16rem,40dvh)] lg:w-[min(16rem,40dvh)]" />
                 </div>
               ) : upiQrError ? (
                 <div role="status" className="mx-auto flex min-h-56 max-w-xs flex-col items-center justify-center rounded-2xl border border-amber-200 bg-amber-50 px-5 py-6 text-amber-800">
@@ -2656,27 +2786,26 @@ export default function AddSalePage() {
                   <p className="mt-1 text-xs leading-5">{upiQrError}</p>
                 </div>
               ) : (
-                <div className="mx-auto flex h-64 w-64 flex-col items-center justify-center rounded-2xl bg-slate-50 text-slate-500">
+                <div className="mx-auto flex h-[min(14rem,36dvh)] w-[min(14rem,36dvh)] flex-col items-center justify-center rounded-2xl bg-slate-50 text-slate-500 sm:h-[min(15rem,40dvh)] sm:w-[min(15rem,40dvh)] lg:h-[min(16rem,40dvh)] lg:w-[min(16rem,40dvh)]">
                   <span className="h-9 w-9 animate-spin rounded-full border-4 border-emerald-100 border-t-emerald-600" />
                   <p className="mt-4 text-sm font-semibold">Preparing payment QR…</p>
                 </div>
               )}
-              {upiQrCode && <p className="mt-4 text-sm font-semibold text-slate-800">Open any UPI app and scan</p>}
-              <p className="mt-1 text-xs text-slate-500">The QR code is linked to this exact bill amount.</p>
-              {!selectedCustomer && <div className="mx-auto mt-4 max-w-sm space-y-2 text-left">
-                <input aria-label="Customer name for checkout" autoComplete="name" value={customerName} onChange={(event) => { setCustomerName(event.target.value); setError(null); }} placeholder="Customer name" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-emerald-500" />
-                <input aria-label="Customer mobile number for checkout" type="tel" inputMode="numeric" maxLength={10} value={customerPhone} onChange={(event) => { setCustomerPhone(event.target.value.replace(/\D/g, "").slice(0, 10)); setError(null); }} placeholder="10-digit mobile number" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-emerald-500" />
+              <p className="mt-1 text-[10px] font-medium text-slate-500">{upiQrCode ? "Open a UPI app and scan this bill amount." : "The QR code will match this bill amount."}</p>
+              {!selectedCustomer && <div className="mx-auto mt-2 max-w-sm space-y-1.5 text-left">
+                <input aria-label="Customer name for checkout" autoComplete="name" value={customerName} onChange={(event) => { setCustomerName(event.target.value); setError(null); }} placeholder="Customer name" className="w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm outline-none focus:border-emerald-500" />
+                <input aria-label="Customer mobile number for checkout" type="tel" inputMode="numeric" maxLength={10} value={customerPhone} onChange={(event) => { setCustomerPhone(event.target.value.replace(/\D/g, "").slice(0, 10)); setError(null); }} placeholder="10-digit mobile number" className="w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm outline-none focus:border-emerald-500" />
                 {customerName.trim() && customerPhone.replace(/\D/g, "").length !== 10 && <p className="text-xs font-medium text-amber-700">Enter a valid 10-digit mobile number.</p>}
               </div>}
-              {process.env.NEXT_PUBLIC_UPI_ID && <p className="mt-3 text-[11px] font-medium text-slate-400">UPI ID: {process.env.NEXT_PUBLIC_UPI_ID}</p>}
+              {process.env.NEXT_PUBLIC_UPI_ID && <p className="mt-1 text-[10px] text-slate-400">UPI ID: {process.env.NEXT_PUBLIC_UPI_ID}</p>}
               <button
                 type="button"
                 disabled={!upiQrCode || submitting || (!selectedCustomer && (!customerName.trim() || customerPhone.replace(/\D/g, "").length !== 10)) || cart.length === 0}
                 onClick={() => {
                   const printWindow = window.open("", "_blank", "width=480,height=640");
-                  void handleSubmit(true, true, printWindow);
+                  void handleSubmit(false, true, printWindow);
                 }}
-                className="mt-5 w-full rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+                className="mt-2 w-full rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
               >
                 {submitting ? "Submitting bill…" : "Done · Submit & print bill"}
               </button>

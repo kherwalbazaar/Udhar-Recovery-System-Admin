@@ -8,6 +8,9 @@ type SaleRecord = {
   createdAt: number;
   salePrice?: number;
   quantity?: number;
+  customerId?: string;
+  customerName?: string;
+  saleType?: "cash" | "credit";
 };
 
 type TransactionRecord = {
@@ -77,6 +80,14 @@ export function buildSalesReport(
     createdAt: Number(s.createdAt ?? 0),
     salePrice: s.salePrice != null ? Number(s.salePrice) : undefined,
     quantity: s.quantity != null ? Number(s.quantity) : undefined,
+    customerId: s.customerId != null ? String(s.customerId) : undefined,
+    customerName: s.customerName != null ? String(s.customerName) : undefined,
+    saleType:
+      s.saleType === "credit"
+        ? "credit"
+        : s.saleType === "cash"
+          ? "cash"
+          : undefined,
   }));
 
   const transactions: TransactionRecord[] = [];
@@ -123,11 +134,26 @@ export function buildSalesReport(
       (t) => t.type === "gave" && !used.has(t.id)
     );
 
-    let customer = "Walk-in Customer";
+    let customer = sale.customerName || "Walk-in Customer";
     let type: RecentSaleRow["type"] = "Cash";
     let status: RecentSaleRow["status"] = "Paid";
 
-    if (match) {
+    if (sale.customerName && sale.saleType) {
+      const saleTransaction = sale.customerId
+        ? (byKey.get(key) ?? []).find(
+            (transaction) =>
+              transaction.customerId === sale.customerId &&
+              transaction.type === "gave" &&
+              !used.has(transaction.id)
+          )
+        : undefined;
+      if (saleTransaction) used.add(saleTransaction.id);
+      type = sale.saleType === "credit" ? "Credit" : "Cash";
+      if (type === "Credit") {
+        const balance = customerBalance.get(sale.customerId ?? "") ?? 0;
+        status = balance > 0 ? "Pending" : "Paid";
+      }
+    } else if (match) {
       used.add(match.id);
       customer = match.customerName;
       type = "Credit";

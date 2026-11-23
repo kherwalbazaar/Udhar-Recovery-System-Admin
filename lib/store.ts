@@ -10,6 +10,9 @@ import {
   writeCache,
 } from "./cache";
 
+export const RUNNING_CUSTOMER_ID = "running-customer";
+export const RUNNING_CUSTOMER_NAME = "Running Customer";
+
 export type Product = {
   name: string;
   barcode?: string;
@@ -245,7 +248,17 @@ export async function submitSale(params: {
       ...(note ? { note } : {}),
       ...(paymentMethod ? { paymentMethod } : {}),
       ...(invoiceNo ? { invoiceNo } : {}),
+      ...(customer
+        ? { customerId: customer.id, customerName: customer.name }
+        : {}),
+      saleType,
     };
+  }
+
+  if (customer?.id === RUNNING_CUSTOMER_ID) {
+    updates[`customers/${customer.id}/name`] = RUNNING_CUSTOMER_NAME;
+    updates[`customers/${customer.id}/phone`] = "";
+    updates[`customers/${customer.id}/address`] = "";
   }
 
   if (saleType === "credit" && customer) {
@@ -275,8 +288,10 @@ export async function submitSale(params: {
       };
       balanceDelta -= receivedAmount;
     }
-    updates[`customers/${customer.id}/totalAmount`] =
-      (customer.totalAmount ?? 0) + balanceDelta;
+    if (customer.id !== RUNNING_CUSTOMER_ID) {
+      updates[`customers/${customer.id}/totalAmount`] =
+        (customer.totalAmount ?? 0) + balanceDelta;
+    }
   }
 
   if (idempotencyKey) {

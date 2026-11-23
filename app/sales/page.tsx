@@ -31,6 +31,8 @@ import {
   fetchCustomers,
   createCustomer,
   submitSale,
+  RUNNING_CUSTOMER_ID,
+  RUNNING_CUSTOMER_NAME,
   type Product,
   type CustomerSummary,
 } from "@/lib/store";
@@ -619,6 +621,7 @@ export default function AddSalePage() {
   }, [productsLoading]);
 
   const subtotal = cart.reduce((sum, item) => sum + item.sale * item.qty, 0);
+  const isRunningCustomer = selectedCustomer?.id === RUNNING_CUSTOMER_ID;
   const gstAmount = Number((subtotal * GST_RATE / 100).toFixed(2));
   const discount = Number((gstAmount + cgstAmount).toFixed(2));
   const totalWithTax = subtotal + gstAmount + cgstAmount;
@@ -788,6 +791,68 @@ export default function AddSalePage() {
     setCustomerAddress("");
     setCustomerSaveError(null);
     setIsAddingBill(true);
+  };
+
+  const handleStartRunningCustomerBill = () => {
+    if (billTabs.length >= MAX_OPEN_BILLS) {
+      showToast("warning", BILL_LIMIT_MESSAGE);
+      return;
+    }
+
+    const customer: CustomerSummary = {
+      id: RUNNING_CUSTOMER_ID,
+      name: RUNNING_CUSTOMER_NAME,
+      phone: "",
+      address: "",
+      totalAmount: 0,
+    };
+    const nextNum = billTabs.reduce((max, bill) => {
+      const match = bill.title?.match(/Bill\s*(\d+)/i);
+      return match ? Math.max(max, parseInt(match[1], 10)) : max;
+    }, 0) + 1;
+    const newBill: PendingBill = {
+      id: makeBillId(),
+      name: RUNNING_CUSTOMER_NAME,
+      mobile: "",
+      address: "",
+      isSaved: true,
+      title: `Bill ${nextNum} (${RUNNING_CUSTOMER_NAME})`,
+      customer,
+      items: [],
+      invoiceNo: null,
+      paymentMode: "Cash",
+      cgstAmount: 0,
+      received: 0,
+      receivedTouched: false,
+      updatedAt: Date.now(),
+      status: "PENDING",
+    };
+
+    saveLocalPendingBill(newBill);
+    void savePendingBill(newBill).catch((saveError) => {
+      showToast(
+        "error",
+        `Pending bill could not be saved: ${saveError instanceof Error ? saveError.message : "Database error"}`
+      );
+    });
+    setBillTabs((current) => [...current, newBill]);
+    activeBillIdRef.current = newBill.id;
+    setActiveBillId(newBill.id);
+    setCart([]);
+    setSelectedCustomer(customer);
+    setCustomerName(RUNNING_CUSTOMER_NAME);
+    setCustomerPhone("");
+    setCustomerAddress("");
+    setCustomerSaveError(null);
+    setInvoiceNo(null);
+    setPaymentMode("Cash");
+    setCgstAmount(0);
+    setReceived(0);
+    setReceivedTouched(false);
+    setReceiptDelivery(null);
+    setIsAddingBill(false);
+    setEditingBillId(null);
+    requestAnimationFrame(() => searchInputRef.current?.focus());
   };
 
   const handleCancelAddBill = () => {
@@ -1160,7 +1225,7 @@ export default function AddSalePage() {
     paymentModeOverride?: PaymentMode,
   ) => {
     if (submitting) return;
-    if (!selectedCustomer && (!customerName.trim() || customerPhone.replace(/\D/g, "").length !== 10)) {
+    if (!isRunningCustomer && !selectedCustomer && (!customerName.trim() || customerPhone.replace(/\D/g, "").length !== 10)) {
       setError("Enter the customer name and a valid 10-digit mobile number before checkout.");
       return;
     }
@@ -1174,7 +1239,7 @@ export default function AddSalePage() {
 
     // Open a blank tab directly from the checkout click so browsers do not
     // block the later redirect while Firebase saves the sale.
-    const whatsappWindow = autoSendWhatsapp
+    const whatsappWindow = autoSendWhatsapp && !isRunningCustomer
       ? window.open("about:blank", "_blank")
       : null;
 
@@ -1245,108 +1310,113 @@ export default function AddSalePage() {
         idempotencyKey: activeBillId ?? undefined,
       });
 
-      if (printAfterSubmit) {
+      if (printAfterSubmit && !isRunningCustomer) {
         await handlePrintReceipt(preopenedPrintWindow);
         setUpiDialogOpen(false);
       }
 
-      const receiptCreatedAt = new Date();
-      const fileSafeInvoice = (invoiceNo || `bill-${Date.now()}`).replace(/[^a-z0-9-_]/gi, "-");
-      const receiptFileName = `${fileSafeInvoice}.pdf`;
-      const customerDigits = saleCustomer.phone.replace(/\D/g, "");
-      const whatsappPhone = customerDigits.length === 10
-        ? `91${customerDigits}`
-        : customerDigits.startsWith("0") && customerDigits.length === 11
-          ? `91${customerDigits.slice(1)}`
-          : customerDigits;
-      const receiptMessage = [
-        `Hello ${saleCustomer.name},`,
-        "Your Kherwal Bazaar bill receipt is ready.",
-        ...(invoiceNo ? [`Bill No: ${invoiceNo}`] : []),
-        `Net Pay: INR ${fmt(finalPayable)}`,
-      ].join("\n");
-      const deliveryBase = {
-        fileName: receiptFileName,
-        customerName: saleCustomer.name,
-        customerPhone: saleCustomer.phone,
-        whatsappUrl: `https://wa.me/${whatsappPhone}?text=${encodeURIComponent(receiptMessage)}`,
-      };
-      let receiptPdf: Blob | null = null;
-      try {
-        receiptPdf = createThermalReceiptPdf({
-          billNumber: invoiceNo,
+      if (isRunningCustomer) {
+        setUpiDialogOpen(false);
+        setReceiptDelivery(null);
+      } else {
+        const receiptCreatedAt = new Date();
+        const fileSafeInvoice = (invoiceNo || `bill-${Date.now()}`).replace(/[^a-z0-9-_]/gi, "-");
+        const receiptFileName = `${fileSafeInvoice}.pdf`;
+        const customerDigits = saleCustomer.phone.replace(/\D/g, "");
+        const whatsappPhone = customerDigits.length === 10
+          ? `91${customerDigits}`
+          : customerDigits.startsWith("0") && customerDigits.length === 11
+            ? `91${customerDigits.slice(1)}`
+            : customerDigits;
+        const receiptMessage = [
+          `Hello ${saleCustomer.name},`,
+          "Your Kherwal Bazaar bill receipt is ready.",
+          ...(invoiceNo ? [`Bill No: ${invoiceNo}`] : []),
+          `Net Pay: INR ${fmt(finalPayable)}`,
+        ].join("\n");
+        const deliveryBase = {
+          fileName: receiptFileName,
           customerName: saleCustomer.name,
           customerPhone: saleCustomer.phone,
-          createdAt: receiptCreatedAt,
-          paymentMode: salePaymentMode,
-          items: cart.map((item) => ({ name: item.name, quantity: item.qty, unitPrice: item.sale })),
-          subtotal,
-          gst: gstAmount,
-          total: totalWithTax,
-          discount,
-          payable: finalPayable,
-          received: receivedAmount,
-        });
-      } catch (pdfError) {
-        console.error("Failed to create the bill receipt PDF", pdfError);
-      }
+          whatsappUrl: `https://wa.me/${whatsappPhone}?text=${encodeURIComponent(receiptMessage)}`,
+        };
+        let receiptPdf: Blob | null = null;
+        try {
+          receiptPdf = createThermalReceiptPdf({
+            billNumber: invoiceNo,
+            customerName: saleCustomer.name,
+            customerPhone: saleCustomer.phone,
+            createdAt: receiptCreatedAt,
+            paymentMode: salePaymentMode,
+            items: cart.map((item) => ({ name: item.name, quantity: item.qty, unitPrice: item.sale })),
+            subtotal,
+            gst: gstAmount,
+            total: totalWithTax,
+            discount,
+            payable: finalPayable,
+            received: receivedAmount,
+          });
+        } catch (pdfError) {
+          console.error("Failed to create the bill receipt PDF", pdfError);
+        }
 
-      if (!receiptPdf) {
-        setReceiptDelivery({
-          ...deliveryBase,
-          status: "Failed",
-          pdf: null,
-          error: "The sale was saved, but the receipt PDF could not be generated.",
-        });
-      } else {
-        // Automatically download the PDF receipt upon checkout
-        downloadReceiptPdf(receiptPdf, receiptFileName);
-
-        if (!whatsappPhone) {
+        if (!receiptPdf) {
           setReceiptDelivery({
             ...deliveryBase,
-            status: "Manual Sending",
-            pdf: receiptPdf,
-            error: "Sale saved and PDF downloaded. No 10-digit mobile number for WhatsApp sharing.",
+            status: "Failed",
+            pdf: null,
+            error: "The sale was saved, but the receipt PDF could not be generated.",
           });
         } else {
-          const delivery: ReceiptDelivery = {
-            ...deliveryBase,
-            status: "Manual Sending",
-            pdf: receiptPdf,
-          };
-          setReceiptDelivery(delivery);
-          if (autoSendWhatsapp) {
-            const startManualFallback = () => {
-              try {
-                if (whatsappWindow && !whatsappWindow.closed) {
-                  whatsappWindow.location.href = delivery.whatsappUrl;
-                } else {
-                  showToast("warning", "WhatsApp could not open automatically. Use the manual receipt action below.");
-                }
-                setReceiptDelivery({ ...delivery, status: "Manual Sending" });
-              } catch (deliveryError) {
-                console.error("Could not start manual WhatsApp receipt sharing", deliveryError);
-                setReceiptDelivery({
-                  ...delivery,
-                  status: "Failed",
-                  error: "Sale saved. The PDF is ready, but WhatsApp could not open. Allow pop-ups and try again.",
-                });
-              }
-            };
-            void sendReceiptAutomatically({
-              phone: whatsappPhone,
-              fileName: receiptFileName,
+          // Automatically download the PDF receipt upon checkout
+          downloadReceiptPdf(receiptPdf, receiptFileName);
+
+          if (!whatsappPhone) {
+            setReceiptDelivery({
+              ...deliveryBase,
+              status: "Manual Sending",
               pdf: receiptPdf,
-              caption: receiptMessage,
-            }).then((automaticStatus) => {
-              if (automaticStatus === "sent") {
-                whatsappWindow?.close();
-                setReceiptDelivery({ ...delivery, status: "Automatically Sent" });
-              } else {
-                startManualFallback();
-              }
-            }).catch(() => startManualFallback());
+              error: "Sale saved and PDF downloaded. No 10-digit mobile number for WhatsApp sharing.",
+            });
+          } else {
+            const delivery: ReceiptDelivery = {
+              ...deliveryBase,
+              status: "Manual Sending",
+              pdf: receiptPdf,
+            };
+            setReceiptDelivery(delivery);
+            if (autoSendWhatsapp) {
+              const startManualFallback = () => {
+                try {
+                  if (whatsappWindow && !whatsappWindow.closed) {
+                    whatsappWindow.location.href = delivery.whatsappUrl;
+                  } else {
+                    showToast("warning", "WhatsApp could not open automatically. Use the manual receipt action below.");
+                  }
+                  setReceiptDelivery({ ...delivery, status: "Manual Sending" });
+                } catch (deliveryError) {
+                  console.error("Could not start manual WhatsApp receipt sharing", deliveryError);
+                  setReceiptDelivery({
+                    ...delivery,
+                    status: "Failed",
+                    error: "Sale saved. The PDF is ready, but WhatsApp could not open. Allow pop-ups and try again.",
+                  });
+                }
+              };
+              void sendReceiptAutomatically({
+                phone: whatsappPhone,
+                fileName: receiptFileName,
+                pdf: receiptPdf,
+                caption: receiptMessage,
+              }).then((automaticStatus) => {
+                if (automaticStatus === "sent") {
+                  whatsappWindow?.close();
+                  setReceiptDelivery({ ...delivery, status: "Automatically Sent" });
+                } else {
+                  startManualFallback();
+                }
+              }).catch(() => startManualFallback());
+            }
           }
         }
       }
@@ -1856,7 +1926,7 @@ export default function AddSalePage() {
         </div>
       </div>
 
-      {receiptDelivery && (
+      {receiptDelivery && !isRunningCustomer && (
         <section
           role="status"
           aria-live="polite"
@@ -1939,7 +2009,7 @@ export default function AddSalePage() {
                         )}
                       </button>
 
-                      {isActive && (
+                      {isActive && bill.customer?.id !== RUNNING_CUSTOMER_ID && (
                         <button
                           type="button"
                           onClick={(e) => {
@@ -1975,6 +2045,25 @@ export default function AddSalePage() {
 
                 <button
                   type="button"
+                  onClick={handleStartRunningCustomerBill}
+                  title={
+                    billLimitReached
+                      ? `Maximum ${MAX_OPEN_BILLS} bills allowed. Close a bill to add another.`
+                      : `Create a bill for ${RUNNING_CUSTOMER_NAME}`
+                  }
+                  aria-disabled={billLimitReached}
+                  className={`inline-flex items-center gap-1 rounded-lg border px-3 py-1.5 text-xs font-bold transition active:scale-95 ${
+                    billLimitReached
+                      ? "cursor-not-allowed border-slate-300 bg-slate-100 text-slate-400"
+                      : "border-emerald-500 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                  }`}
+                >
+                  <Users className="h-3.5 w-3.5" />
+                  <span>{RUNNING_CUSTOMER_NAME}</span>
+                </button>
+
+                <button
+                  type="button"
                   onClick={handleStartAddBill}
                   title={
                     billLimitReached
@@ -1992,7 +2081,7 @@ export default function AddSalePage() {
                   <span>Add Bill</span>
                 </button>
               </div>
-              <label className={`ml-auto inline-flex flex-none items-center gap-2 whitespace-nowrap text-xs font-medium ${
+              {!isRunningCustomer && <label className={`ml-auto inline-flex flex-none items-center gap-2 whitespace-nowrap text-xs font-medium ${
                 (selectedCustomer?.phone || customerPhone).trim() ? "text-slate-700" : "text-slate-400"
               }`}>
                 <input
@@ -2003,7 +2092,7 @@ export default function AddSalePage() {
                   className="h-4 w-4 accent-green-600"
                 />
                 Send Bill via WhatsApp
-              </label>
+              </label>}
             </div>
 
             {isAddingBill && (
@@ -2897,17 +2986,28 @@ export default function AddSalePage() {
                 {customerName.trim() && customerPhone.replace(/\D/g, "").length !== 10 && <p className="text-xs font-medium text-amber-700">Enter a valid 10-digit mobile number.</p>}
               </div>}
               {process.env.NEXT_PUBLIC_UPI_ID && <p className="mt-1 text-[10px] text-slate-400">UPI ID: {process.env.NEXT_PUBLIC_UPI_ID}</p>}
-              <button
-                type="button"
-                disabled={!upiQrCode || submitting || (!selectedCustomer && (!customerName.trim() || customerPhone.replace(/\D/g, "").length !== 10)) || cart.length === 0}
-                onClick={() => {
-                  const printWindow = window.open("", "_blank", "width=480,height=640");
-                  void handleSubmit(false, true, printWindow);
-                }}
-                className="mt-2 w-full rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
-              >
-                {submitting ? "Submitting bill…" : "Done · Submit & print bill"}
-              </button>
+              {isRunningCustomer ? (
+                <button
+                  type="button"
+                  disabled={!upiQrCode || submitting || cart.length === 0}
+                  onClick={() => void handleSubmit(false, false)}
+                  className="mt-2 w-full rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+                >
+                  {submitting ? "Submitting sale…" : "Done · Submit sale"}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  disabled={!upiQrCode || submitting || (!selectedCustomer && (!customerName.trim() || customerPhone.replace(/\D/g, "").length !== 10)) || cart.length === 0}
+                  onClick={() => {
+                    const printWindow = window.open("", "_blank", "width=480,height=640");
+                    void handleSubmit(false, true, printWindow);
+                  }}
+                  className="mt-2 w-full rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+                >
+                  {submitting ? "Submitting bill…" : "Done · Submit & print bill"}
+                </button>
+              )}
             </div>
           </section>
         </div>

@@ -282,7 +282,7 @@ export default function AddSalePage() {
               return false;
             });
 
-            if (match) {
+            if (match && activeBillIdRef.current) {
               setCart((prev) => {
                 const existing = prev.find((i) => i.name === match.name);
                 if (existing) {
@@ -615,10 +615,10 @@ export default function AddSalePage() {
   }, [products, productsLoading]);
 
   useEffect(() => {
-    if (!productsLoading && searchInputRef.current) {
+    if (!productsLoading && activeBillId && searchInputRef.current) {
       searchInputRef.current.focus();
     }
-  }, [productsLoading]);
+  }, [productsLoading, activeBillId]);
 
   const subtotal = cart.reduce((sum, item) => sum + item.sale * item.qty, 0);
   const isRunningCustomer = selectedCustomer?.id === RUNNING_CUSTOMER_ID;
@@ -670,8 +670,7 @@ export default function AddSalePage() {
   const addToCart = (product: Product) => {
     sessionTouchedRef.current = true;
     if (!activeBillIdRef.current) {
-      showToast("warning", "Please click 'Add Bill' to start a bill first.");
-      handleStartAddBill();
+      showToast("warning", "Select Running Customer or create a bill before adding products.");
       return;
     }
     if (!invoiceNo) setInvoiceNo(makeInvoiceNo());
@@ -2237,7 +2236,7 @@ export default function AddSalePage() {
                   autoComplete="off"
                   role="combobox"
                   aria-autocomplete="list"
-                  aria-expanded={search.trim().length > 0 && visibleProducts.length > 0}
+                  aria-expanded={Boolean(activeBillId && search.trim().length > 0 && visibleProducts.length > 0)}
                   aria-controls="sales-product-suggestions"
                   aria-activedescendant={
                     activeProductSuggestion >= 0 && visibleProducts[activeProductSuggestion]
@@ -2252,13 +2251,18 @@ export default function AddSalePage() {
                     setMissingBarcode(null);
                   }}
                   onKeyDown={handleProductKeyDown}
-                  placeholder="Search product name or scan barcode…"
+                  placeholder={
+                    activeBillId
+                      ? "Search product name or scan barcode…"
+                      : "Select Running Customer or create a bill first"
+                  }
                   aria-label="Search product or scan barcode"
-                  disabled={productsLoading}
-                  className="w-full border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                  disabled={productsLoading || !activeBillId}
+                  title={!activeBillId ? "Select Running Customer or create a bill before adding products." : undefined}
+                  className="w-full border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
                 />
 
-                {search.trim().length > 0 && (
+                {activeBillId && search.trim().length > 0 && (
                   <div
                     id="sales-product-suggestions"
                     role="listbox"

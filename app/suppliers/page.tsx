@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { ref, push, set, update, remove } from "firebase/database";
+import { ref, push, set, update, remove, get } from "firebase/database";
 import { onValueWithCache, CACHE_KEYS, triggerActionRefresh } from "@/lib/cache";import {
   Users,
   ArrowUpRight,
@@ -19,6 +19,7 @@ import { onValueWithCache, CACHE_KEYS, triggerActionRefresh } from "@/lib/cache"
   X,
   Edit3,
   ShoppingCart,
+  PackagePlus,
 } from "lucide-react";
 import AppShell from "@/components/AppShell";
 import PageBackButton from "@/components/PageBackButton";
@@ -148,6 +149,19 @@ export default function SuppliersPage() {
   });
   const [entryError, setEntryError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [detailTab, setDetailTab] = useState<"transactions" | "products">("transactions");
+  const [productOpen, setProductOpen] = useState(false);
+  const [productForm, setProductForm] = useState({
+    name: "",
+    purchase: "",
+    barcode: "",
+    mrp: "",
+    sale: "",
+    size: "",
+    quantity: "1",
+  });
+  const [productError, setProductError] = useState<string | null>(null);
+  const [productSubmitting, setProductSubmitting] = useState(false);
   const [settleDate, setSettleDate] = useState("");
   const [editTxn, setEditTxn] = useState<SupplierTransaction | null>(null);
   const [editForm, setEditForm] = useState({ itemName: "", amount: "" });
@@ -297,6 +311,106 @@ export default function SuppliersPage() {
       setEntryError(e instanceof Error ? e.message : "Failed to save entry.");
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const submitProduct = async () => {
+    if (!selected) return;
+    const name = productForm.name.trim();
+    const purchase = Number(productForm.purchase);
+    const mrp = Number(productForm.mrp);
+    const sale = Number(productForm.sale);
+    const quantity = Number(productForm.quantity);
+    if (!name) {
+      setProductError("Please enter a product name.");
+      return;
+    }
+    if (/[.#$\[\]\/]/.test(name)) {
+      setProductError("Product name cannot contain . # $ / or brackets.");
+      return;
+    }
+    if (!productForm.purchase.trim() || !Number.isFinite(purchase) || purchase < 0) {
+      setProductError("Please enter a valid purchase price.");
+      return;
+    }
+    if (!Number.isFinite(mrp) || mrp <= 0 || !Number.isFinite(sale) || sale <= 0) {
+      setProductError("Please enter valid MRP and sale prices.");
+      return;
+    }
+    if (!productForm.quantity.trim() || !Number.isInteger(quantity) || quantity < 0) {
+      setProductError("Quantity must be a whole number of zero or more.");
+      return;
+    }
+
+    setProductSubmitting(true);
+    setProductError(null);
+    try {
+      const catalogSnapshot = await get(ref(db, "products"));
+      const catalogProducts = catalogSnapshot.val() as
+        | Record<string, Record<string, unknown>>
+        | null;
+      const existingCatalogEntry = Object.entries(catalogProducts ?? {}).find(
+        ([key, product]) =>
+          String(product.name ?? key).trim().toLowerCase() === name.toLowerCase()
+      );
+      const existingCatalogProduct = existingCatalogEntry?.[1];
+      const productKey = existingCatalogEntry?.[0] ?? name;
+      const barcode = productForm.barcode.trim();
+      const size = productForm.size.trim();
+      const existingBarcode = String(existingCatalogProduct?.barcode ?? "");
+      const existingUnit = String(existingCatalogProduct?.unit ?? "");
+      const createdAt = Date.now();
+      const productRef = push(ref(db, `suppliers/${selected.id}/products`));
+      const updates: Record<string, unknown> = {
+        [`suppliers/${selected.id}/products/${productRef.key}`]: {
+          name,
+          purchase,
+          ...(barcode ? { barcode } : {}),
+          mrp,
+          sale,
+          ...(size ? { size } : {}),
+          quantity,
+          createdAt,
+        },
+      };
+
+      if (existingCatalogProduct?.origin !== "catalog") {
+        updates[`products/${productKey}`] = {
+          ...existingCatalogProduct,
+          name: String(existingCatalogProduct?.name ?? name),
+          origin: "catalog",
+          ...(barcode || existingBarcode
+            ? { barcode: barcode || existingBarcode }
+            : {}),
+          mrp,
+          cost: purchase,
+          sale,
+          ...(size || existingUnit
+            ? { unit: size || existingUnit }
+            : {}),
+          active: existingCatalogProduct?.active ?? true,
+          trackStock: existingCatalogProduct?.trackStock ?? true,
+          createdAt: Number(existingCatalogProduct?.createdAt ?? createdAt),
+        };
+      }
+
+      await update(ref(db), updates);
+      triggerActionRefresh();
+      setProductForm({
+        name: "",
+        purchase: "",
+        barcode: "",
+        mrp: "",
+        sale: "",
+        size: "",
+        quantity: "1",
+      });
+      setProductOpen(false);
+      showToast("success", "Supplier product saved.");
+    } catch (e) {
+      setProductError(e instanceof Error ? e.message : "Failed to save supplier product.");
+    } finally {
+      setProductSubmitting(false);
     }
   };
 
@@ -708,7 +822,41 @@ export default function SuppliersPage() {
                   </div>
                 </div>
 
+                <div
+                  role="tablist"
+                  aria-label={`${selected.name} details`}
+                  className="flex items-center gap-1 border-b border-slate-200"
+                >
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={detailTab === "transactions"}
+                    onClick={() => setDetailTab("transactions")}
+                    className={`border-b-2 px-3 py-2 text-xs font-semibold ${
+                      detailTab === "transactions"
+                        ? "border-blue-600 text-blue-700"
+                        : "border-transparent text-slate-500 hover:text-slate-700"
+                    }`}
+                  >
+                    Transactions
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={detailTab === "products"}
+                    onClick={() => setDetailTab("products")}
+                    className={`border-b-2 px-3 py-2 text-xs font-semibold ${
+                      detailTab === "products"
+                        ? "border-blue-600 text-blue-700"
+                        : "border-transparent text-slate-500 hover:text-slate-700"
+                    }`}
+                  >
+                    Products ({selected.products.length})
+                  </button>
+                </div>
+
                 {/* Ledger Table Container */}
+                {detailTab === "transactions" && (
                 <div className="bg-white rounded-xl p-4 border border-slate-200">
                   <div className="flex items-center justify-between mb-3 text-xs">
                     <div className="flex items-center space-x-2">
@@ -886,6 +1034,70 @@ export default function SuppliersPage() {
                     </div>
                   </div>
                 </div>
+                )}
+
+                {detailTab === "products" && (
+                  <div className="rounded-xl border border-slate-200 bg-white p-4">
+                    <div className="mb-3 flex items-center justify-between gap-3">
+                      <div>
+                        <h3 className="text-sm font-bold text-slate-800">
+                          Products from {selected.name}
+                        </h3>
+                        <p className="text-[11px] text-slate-400">
+                          {selected.products.length} products
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setProductError(null);
+                          setProductOpen(true);
+                        }}
+                        className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-blue-700"
+                      >
+                        <PackagePlus className="h-3.5 w-3.5" />
+                        Add Product
+                      </button>
+                    </div>
+
+                    <div className="overflow-x-auto">
+                      <table className="w-full min-w-[780px] border-collapse text-left">
+                        <thead>
+                          <tr className="border-b border-slate-200 text-[11px] text-slate-500">
+                            <th className="px-3 py-2 font-semibold">Product</th>
+                            <th className="px-3 py-2 text-right font-semibold">Purchase (₹)</th>
+                            <th className="px-3 py-2 font-semibold">Barcode</th>
+                            <th className="px-3 py-2 text-right font-semibold">MRP (₹)</th>
+                            <th className="px-3 py-2 text-right font-semibold">Sale (₹)</th>
+                            <th className="px-3 py-2 font-semibold">Size</th>
+                            <th className="px-3 py-2 text-right font-semibold">Qty</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100 text-xs">
+                          {selected.products.length === 0 ? (
+                            <tr>
+                              <td colSpan={7} className="py-8 text-center text-slate-400">
+                                No products have been added for this supplier.
+                              </td>
+                            </tr>
+                          ) : (
+                            selected.products.map((product) => (
+                              <tr key={product.id}>
+                                <td className="px-3 py-2.5 font-medium text-slate-800">{product.name}</td>
+                                <td className="px-3 py-2.5 text-right text-slate-600">{fmt(product.purchase)}</td>
+                                <td className="px-3 py-2.5 text-slate-600">{product.barcode || "—"}</td>
+                                <td className="px-3 py-2.5 text-right text-slate-600">{fmt(product.mrp)}</td>
+                                <td className="px-3 py-2.5 text-right text-slate-600">{fmt(product.sale)}</td>
+                                <td className="px-3 py-2.5 text-slate-600">{product.size || "—"}</td>
+                                <td className="px-3 py-2.5 text-right text-slate-600">{product.quantity}</td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
               </>
             )}
           </div>
@@ -964,6 +1176,165 @@ export default function SuppliersPage() {
               >
                 {submitting ? "Saving..." : "Save Purchase"}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {productOpen && selected && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="max-h-[calc(100vh-2rem)] w-full max-w-xl overflow-y-auto rounded-xl bg-white shadow-xl">
+            <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
+              <h3 className="text-sm font-bold text-slate-800">
+                Add Product — {selected.name}
+              </h3>
+              <button
+                type="button"
+                onClick={() => {
+                  setProductOpen(false);
+                  setProductError(null);
+                }}
+                className="text-slate-400 hover:text-slate-600"
+                aria-label="Close"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 gap-3 p-4 sm:grid-cols-2">
+              <div>
+                <label className="text-[11px] font-medium text-slate-500">
+                  Product Name *
+                </label>
+                <input
+                  type="text"
+                  value={productForm.name}
+                  onChange={(event) =>
+                    setProductForm((form) => ({ ...form, name: event.target.value }))
+                  }
+                  placeholder="Enter product name"
+                  className="mt-1 w-full rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
+                />
+              </div>
+              <div>
+                <label className="text-[11px] font-medium text-slate-500">
+                  Barcode / SKU
+                </label>
+                <input
+                  type="text"
+                  value={productForm.barcode}
+                  onChange={(event) =>
+                    setProductForm((form) => ({ ...form, barcode: event.target.value }))
+                  }
+                  placeholder="Optional"
+                  className="mt-1 w-full rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
+                />
+              </div>
+              <div>
+                <label className="text-[11px] font-medium text-slate-500">
+                  Purchase Price (₹) *
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={productForm.purchase}
+                  onChange={(event) =>
+                    setProductForm((form) => ({ ...form, purchase: event.target.value }))
+                  }
+                  placeholder="Enter purchase price"
+                  className="mt-1 w-full rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
+                />
+              </div>
+              <div>
+                <label className="text-[11px] font-medium text-slate-500">
+                  MRP (₹) *
+                </label>
+                <input
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  value={productForm.mrp}
+                  onChange={(event) =>
+                    setProductForm((form) => ({ ...form, mrp: event.target.value }))
+                  }
+                  placeholder="Enter MRP"
+                  className="mt-1 w-full rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
+                />
+              </div>
+              <div>
+                <label className="text-[11px] font-medium text-slate-500">
+                  Sale Price (₹) *
+                </label>
+                <input
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  value={productForm.sale}
+                  onChange={(event) =>
+                    setProductForm((form) => ({ ...form, sale: event.target.value }))
+                  }
+                  placeholder="Enter sale price"
+                  className="mt-1 w-full rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
+                />
+              </div>
+              <div>
+                <label className="text-[11px] font-medium text-slate-500">
+                  Size
+                </label>
+                <input
+                  type="text"
+                  value={productForm.size}
+                  onChange={(event) =>
+                    setProductForm((form) => ({ ...form, size: event.target.value }))
+                  }
+                  placeholder="Optional"
+                  className="mt-1 w-full rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
+                />
+              </div>
+              <div>
+                <label className="text-[11px] font-medium text-slate-500">
+                  Quantity *
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={productForm.quantity}
+                  onChange={(event) =>
+                    setProductForm((form) => ({ ...form, quantity: event.target.value }))
+                  }
+                  placeholder="Enter quantity"
+                  className="mt-1 w-full rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
+                />
+              </div>
+
+              {productError && (
+                <p role="alert" className="text-[11px] text-red-500 sm:col-span-2">
+                  {productError}
+                </p>
+              )}
+              <div className="flex justify-end gap-2 sm:col-span-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setProductOpen(false);
+                    setProductError(null);
+                  }}
+                  disabled={productSubmitting}
+                  className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={submitProduct}
+                  disabled={productSubmitting}
+                  className="rounded-lg bg-blue-600 px-4 py-2 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+                >
+                  {productSubmitting ? "Saving..." : "Save Product"}
+                </button>
+              </div>
             </div>
           </div>
         </div>

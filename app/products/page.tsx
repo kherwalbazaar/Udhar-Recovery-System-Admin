@@ -247,17 +247,47 @@ export default function ProductPage() {
   }, []);
 
   useEffect(() => {
+    let active = true;
+    let refreshGeneration = 0;
     fetchRecentProducts()
-      .then(setRecent)
+      .then((products) => {
+        if (active) setRecent(products);
+      })
       .catch(() => {});
-    fetchAllProducts()
-      .then(setAllProducts)
-      .catch((loadError: Error) => showToast("error", loadError.message));
-    fetchCatalogProducts()
-      .then(setProductList)
-      .catch((e: Error) => setListError(e.message))
-      .finally(() => setListLoading(false));
-  }, []);
+
+    const refreshProducts = () => {
+      const generation = ++refreshGeneration;
+      fetchAllProducts()
+        .then((products) => {
+          if (active && generation === refreshGeneration) setAllProducts(products);
+        })
+        .catch((loadError: Error) => {
+          if (active && generation === refreshGeneration) {
+            showToast("error", loadError.message);
+          }
+        });
+      fetchCatalogProducts()
+        .then((products) => {
+          if (active && generation === refreshGeneration) {
+            setProductList(products);
+            setListError(null);
+          }
+        })
+        .catch((loadError: Error) => {
+          if (active && generation === refreshGeneration) setListError(loadError.message);
+        })
+        .finally(() => {
+          if (active && generation === refreshGeneration) setListLoading(false);
+        });
+    };
+
+    refreshProducts();
+    window.addEventListener("udhar:refresh", refreshProducts);
+    return () => {
+      active = false;
+      window.removeEventListener("udhar:refresh", refreshProducts);
+    };
+  }, [showToast]);
 
   const handleExport = () => {
     const headers = ["Product", "Purchase", "Barcode", "MRP", "Sale", "Size", "Category", "Stock"];

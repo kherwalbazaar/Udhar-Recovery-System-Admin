@@ -96,13 +96,16 @@ export async function fetchAllProducts(): Promise<ProductRecord[]> {
 }
 
 export async function fetchCatalogProducts(): Promise<ProductWithSales[]> {
-  const [productsSnap, salesSnap] = await Promise.all([
+  const [productsSnap, salesSnap, suppliersSnap] = await Promise.all([
     firebaseGet(ref(db, "products")),
     firebaseGet(ref(db, "sales")),
+    firebaseGet(ref(db, "suppliers")),
   ]);
   const raw = productsSnap.val() as Record<string, Record<string, unknown>> | null;
   const salesRaw = salesSnap.val() as Record<string, Record<string, unknown>> | null;
-  if (!raw) return [];
+  const suppliersRaw = suppliersSnap.val() as
+    | Record<string, { products?: Record<string, Record<string, unknown>> }>
+    | null;
 
   const soldProductNames = new Set(
     Object.values(salesRaw ?? {})
@@ -110,7 +113,7 @@ export async function fetchCatalogProducts(): Promise<ProductWithSales[]> {
       .filter(Boolean)
   );
 
-  return Object.values(raw)
+  const products: ProductWithSales[] = Object.values(raw ?? {})
     .filter((product) => {
       const name = String(product.name ?? "").trim();
       if (!name) return false;
@@ -154,8 +157,32 @@ export async function fetchCatalogProducts(): Promise<ProductWithSales[]> {
       stock: product.stock != null ? Number(product.stock) : undefined,
       totalQty: 0,
       inCatalog: true,
-    }))
-    .sort((a, b) => a.name.localeCompare(b.name));
+    }));
+
+  const productNames = new Set(
+    products.map((product) => product.name.toLocaleLowerCase())
+  );
+  for (const supplier of Object.values(suppliersRaw ?? {})) {
+    for (const product of Object.values(supplier.products ?? {})) {
+      const name = String(product.name ?? "").trim();
+      const normalizedName = name.toLocaleLowerCase();
+      if (!name || productNames.has(normalizedName)) continue;
+
+      productNames.add(normalizedName);
+      products.push({
+        name,
+        barcode: product.barcode ? String(product.barcode) : undefined,
+        mrp: Number(product.mrp ?? 0),
+        cost: Number(product.purchase ?? 0),
+        sale: Number(product.sale ?? 0),
+        unit: product.size ? String(product.size) : undefined,
+        totalQty: 0,
+        inCatalog: false,
+      });
+    }
+  }
+
+  return products.sort((a, b) => a.name.localeCompare(b.name));
 }
 
 export type ProductWithSales = {

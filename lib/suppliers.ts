@@ -11,6 +11,18 @@ export type SupplierTransaction = {
   createdAt: number;
 };
 
+export type SupplierProduct = {
+  id: string;
+  name: string;
+  purchase: number;
+  barcode: string;
+  mrp: number;
+  sale: number;
+  size: string;
+  quantity: number;
+  createdAt: number;
+};
+
 export type Supplier = {
   id: string;
   name: string;
@@ -21,6 +33,7 @@ export type Supplier = {
   totalPaid: number;
   balance: number;
   transactions: SupplierTransaction[];
+  products: SupplierProduct[];
 };
 
 export type SupplierMetrics = {
@@ -79,6 +92,21 @@ export function buildSuppliers(rawSuppliers: RawMap): SupplierData {
       });
     }
 
+    const products = toEntries((s.products as RawMap) ?? null)
+      .map((product): SupplierProduct => ({
+        id: String(product.id),
+        name: String(product.name ?? ""),
+        purchase: Number(product.purchase ?? 0),
+        barcode: String(product.barcode ?? ""),
+        mrp: Number(product.mrp ?? 0),
+        sale: Number(product.sale ?? 0),
+        size: String(product.size ?? ""),
+        quantity: Number(product.quantity ?? 0),
+        createdAt: Number(product.createdAt ?? 0),
+      }))
+      .filter((product) => product.name)
+      .sort((a, b) => b.createdAt - a.createdAt);
+
     const balance = purchase - paid;
     totalPurchase += purchase;
     totalPaid += paid;
@@ -102,6 +130,7 @@ export function buildSuppliers(rawSuppliers: RawMap): SupplierData {
       totalPaid: paid,
       balance,
       transactions: transactions.sort((a, b) => b.createdAt - a.createdAt),
+      products,
     });
   }
 

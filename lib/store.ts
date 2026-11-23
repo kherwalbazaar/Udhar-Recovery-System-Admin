@@ -1,4 +1,12 @@
-import { ref, push, set, update, runTransaction, remove } from "firebase/database";
+import {
+  get as firebaseGet,
+  ref,
+  push,
+  set,
+  update,
+  runTransaction,
+  remove,
+} from "firebase/database";
 import { db } from "./firebase";
 import { supabase } from "./supabase";
 import {
@@ -49,43 +57,96 @@ function toDateKey(d: Date): string {
 }
 
 export async function fetchProducts(): Promise<Product[]> {
-  const snap = await getWithCache(ref(db, "products"), CACHE_KEYS.PRODUCTS);
-  const raw = snap.val() as
+  const [snap, salesSnap, suppliersSnap] = await Promise.all([
+    getWithCache(ref(db, "products"), CACHE_KEYS.PRODUCTS),
+    getWithCache(ref(db, "sales"), CACHE_KEYS.SALES),
+    firebaseGet(ref(db, "suppliers")),
+  ]);
+  type RawProduct = {
+    name?: string;
+    origin?: "catalog" | "sales";
+    barcode?: string;
+    cost?: number | string;
+    mrp?: number;
+    sale?: number;
+    unit?: string;
+    createdAt?: number;
+  };
+  const raw = snap.val() as Record<string, RawProduct> | null;
+  const suppliersRaw = suppliersSnap.val() as
     | Record<
         string,
         {
-          name?: string;
-          barcode?: string;
-          cost?: number | string;
-          mrp?: number;
-          sale?: number;
-          unit?: string;
-          createdAt?: number;
+          products?: Record<
+            string,
+            {
+              name?: string;
+              barcode?: string;
+              purchase?: number | string;
+              mrp?: number | string;
+              sale?: number | string;
+              size?: string;
+              createdAt?: number | string;
+            }
+          >;
         }
       >
     | null;
 
   const byName = new Map<string, Product>();
+  const salesOriginProducts: RawProduct[] = [];
+  const addRootProduct = (p: RawProduct, inCatalog: boolean) => {
+    const name = String(p.name ?? "").trim();
+    const normalizedName = name.toLocaleLowerCase();
+    if (!name || byName.has(normalizedName)) return;
+    const mrp = Number(p.mrp ?? 0);
+    const sale = Number(p.sale ?? 0);
+    byName.set(normalizedName, {
+      name,
+      barcode: p.barcode ? String(p.barcode) : undefined,
+      purchase: p.cost != null ? Number(p.cost) : undefined,
+      mrp,
+      sale: sale > 0 ? sale : mrp,
+      size: p.unit ? String(p.unit) : undefined,
+      inCatalog,
+      createdAt: Number(p.createdAt ?? 0),
+    });
+  };
   if (raw) {
     for (const p of Object.values(raw)) {
-      const name = String(p.name ?? "").trim();
-      if (!name) continue;
-      const mrp = Number(p.mrp ?? 0);
-      const sale = Number(p.sale ?? 0);
-      byName.set(name, {
+      if (p.origin === "sales") salesOriginProducts.push(p);
+      else addRootProduct(p, true);
+    }
+  }
+
+  for (const supplier of Object.values(suppliersRaw ?? {})) {
+    for (const supplierProduct of Object.values(supplier.products ?? {})) {
+      const name = String(supplierProduct.name ?? "").trim();
+      const normalizedName = name.toLocaleLowerCase();
+      if (!name || byName.has(normalizedName)) continue;
+
+      const mrp = Number(supplierProduct.mrp ?? 0);
+      const sale = Number(supplierProduct.sale ?? 0);
+      byName.set(normalizedName, {
         name,
-        barcode: p.barcode ? String(p.barcode) : undefined,
-        purchase: p.cost != null ? Number(p.cost) : undefined,
+        barcode: supplierProduct.barcode
+          ? String(supplierProduct.barcode)
+          : undefined,
+        purchase:
+          supplierProduct.purchase != null
+            ? Number(supplierProduct.purchase)
+            : undefined,
         mrp,
         sale: sale > 0 ? sale : mrp,
-        size: p.unit ? String(p.unit) : undefined,
-        inCatalog: true,
-        createdAt: Number(p.createdAt ?? 0),
+        size: supplierProduct.size ? String(supplierProduct.size) : undefined,
+        inCatalog: false,
+        createdAt: Number(supplierProduct.createdAt ?? 0),
       });
     }
   }
 
-  const salesSnap = await getWithCache(ref(db, "sales"), CACHE_KEYS.SALES);
+  for (const p of salesOriginProducts) addRootProduct(p, false);
+
   const salesRaw = salesSnap.val() as
     | Record<
         string,
@@ -102,7 +163,8 @@ export async function fetchProducts(): Promise<Product[]> {
     for (const r of Object.values(salesRaw)) {
       const name = String(r.productName ?? "").trim();
       if (!name) continue;
-      const existing = byName.get(name);
+      const normalizedName = name.toLocaleLowerCase();
+      const existing = byName.get(normalizedName);
       if (existing) {
         if (!existing.createdAt) {
           existing.createdAt = Number(r.createdAt ?? 0);
@@ -111,7 +173,7 @@ export async function fetchProducts(): Promise<Product[]> {
       }
       const mrp = Number(r.mrp ?? 0);
       const salePrice = Number(r.salePrice ?? r.sale ?? 0);
-      byName.set(name, {
+      byName.set(normalizedName, {
         name,
         mrp,
         sale: salePrice > 0 ? salePrice : mrp,

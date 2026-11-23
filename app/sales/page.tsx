@@ -329,6 +329,38 @@ export default function AddSalePage() {
     };
   }, []);
 
+  useEffect(() => {
+    let active = true;
+    let refreshGeneration = 0;
+    const refreshProducts = () => {
+      const generation = ++refreshGeneration;
+      fetchProducts()
+        .then((products) => {
+          if (!active || generation !== refreshGeneration) return;
+          setProducts(products);
+          setPriceInputs((current) =>
+            Object.fromEntries(
+              products.map((product) => [
+                product.name,
+                current[product.name] ?? product.sale,
+              ])
+            )
+          );
+        })
+        .catch((loadError: Error) => {
+          if (active && generation === refreshGeneration) {
+            setError(`Failed to load products: ${loadError.message}`);
+          }
+        });
+    };
+
+    window.addEventListener("udhar:refresh", refreshProducts);
+    return () => {
+      active = false;
+      window.removeEventListener("udhar:refresh", refreshProducts);
+    };
+  }, []);
+
   const resetSession = useCallback(() => {
     activeBillIdRef.current = null;
     setActiveBillId(null);

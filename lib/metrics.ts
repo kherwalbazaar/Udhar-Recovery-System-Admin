@@ -1,3 +1,5 @@
+import { resolveUnitCost } from "./cost";
+
 export type RawMap = Record<string, Record<string, unknown>> | null;
 
 export type Metrics = {
@@ -60,9 +62,7 @@ export function buildMetrics(
     if (name) costByProduct.set(name, Number(p.cost ?? 0));
   }
   const costOf = (product: string, mrp: number) =>
-    costByProduct.get(product) && costByProduct.get(product)! > 0
-      ? costByProduct.get(product)!
-      : mrp / 2;
+    resolveUnitCost(product, mrp, costByProduct.get(product));
 
   let given = 0;
   let givenCustomers = 0;

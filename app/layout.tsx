@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import AuthGate from "@/components/AuthGate";
 import FirebaseAnalytics from "@/components/FirebaseAnalytics";
 import ToastProvider from "@/components/ToastProvider";
@@ -11,6 +11,13 @@ export const metadata: Metadata = {
   icons: {
     icon: "/icon.png",
   },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#1e3a5f",
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
 };
 
 export default function RootLayout({

@@ -1,3 +1,5 @@
+import { resolveUnitCost } from "./cost";
+
 export type RawMap = Record<string, Record<string, unknown>> | null;
 
 type SaleRecord = {
@@ -191,10 +193,7 @@ export function buildProductSalesReport(
       const quantity = Number(s.quantity ?? 1);
       const salePrice =
         s.salePrice != null ? Number(s.salePrice) : sale / quantity;
-      const unitCost =
-        costByProduct.get(product) && costByProduct.get(product)! > 0
-          ? costByProduct.get(product)!
-          : mrp / 2;
+      const unitCost = resolveUnitCost(product, mrp, costByProduct.get(product));
       const profit = sale - unitCost * quantity;
       return {
         id: String(s.id ?? ""),

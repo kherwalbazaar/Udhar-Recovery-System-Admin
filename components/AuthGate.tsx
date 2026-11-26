@@ -4,23 +4,33 @@ import { useEffect, useState, type ReactNode } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { readSession, safeNextPath } from "@/lib/auth";
 import AuthSplash from "./AuthSplash";
+import MobileUserApp, { MOBILE_ROUTE_TO_TAB } from "./MobileUserApp";
 
 type Status = "checking" | "authenticated" | "anonymous";
 
 /**
  * Sends unknown devices to /login and lets signed-in devices straight through.
- * The session lives in browser storage, so the check runs after mount and the
- * splash covers the first paint.
+ * On mobile/small screens (< 768px), synced routes render the unified mobile
+ * User UI while desktop screens render the Admin pages.
  */
 export default function AuthGate({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const isLoginRoute = pathname === "/login";
   const [status, setStatus] = useState<Status>("checking");
+  const [isMobile, setIsMobile] = useState<boolean | null>(null);
 
   useEffect(() => {
     setStatus(readSession() ? "authenticated" : "anonymous");
   }, [pathname]);
+
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 767px)");
+    const update = () => setIsMobile(mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
 
   useEffect(() => {
     if (isLoginRoute || status !== "anonymous") return;
@@ -30,7 +40,14 @@ export default function AuthGate({ children }: { children: ReactNode }) {
 
   if (isLoginRoute) return <>{children}</>;
 
-  if (status === "authenticated") return <>{children}</>;
+  if (status !== "authenticated" || isMobile === null) {
+    return <AuthSplash />;
+  }
 
-  return <AuthSplash />;
+  const normalizedPath = pathname.length > 1 && pathname.endsWith("/") ? pathname.slice(0, -1) : pathname;
+  if (isMobile && normalizedPath in MOBILE_ROUTE_TO_TAB) {
+    return <MobileUserApp currentPath={normalizedPath} />;
+  }
+
+  return <>{children}</>;
 }

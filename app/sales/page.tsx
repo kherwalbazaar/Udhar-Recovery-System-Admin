@@ -24,6 +24,7 @@ import {
   Pencil,
 } from "lucide-react";
 import AppShell from "@/components/AppShell";
+import DesktopEditSalePanel from "@/components/DesktopEditSalePanel";
 import PageBackButton from "@/components/PageBackButton";
 import { useToast } from "@/components/ToastProvider";
 import {
@@ -45,6 +46,7 @@ import {
   saveLocalCustomerDraft,
 } from "@/lib/local-customers";
 import { saveProduct } from "@/lib/products";
+import { resolveUnitCost } from "@/lib/cost";
 import { createThermalReceiptPdf } from "@/lib/thermal-receipt-pdf";
 import { sendReceiptAutomatically } from "@/lib/whatsapp-receipts";
 import { CACHE_KEYS, readCache } from "@/lib/cache";
@@ -249,6 +251,7 @@ export default function AddSalePage() {
   const [pendingBillsLoaded, setPendingBillsLoaded] = useState(false);
   const [isAddingBill, setIsAddingBill] = useState(false);
   const [editingBillId, setEditingBillId] = useState<string | null>(null);
+  const [editSaleTabActive, setEditSaleTabActive] = useState(false);
   const [pendingAction, setPendingAction] = useState(false);
   const suppressPendingSaveRef = useRef(false);
   const activeBillIdRef = useRef<string | null>(null);
@@ -636,8 +639,11 @@ export default function AddSalePage() {
       const sale = Number(row.sale ?? 0);
       const mrp = Number(row.mrp ?? 0);
       const product = products.find((p) => p.name === String(row.productName ?? ""));
-      const cost =
-        product?.purchase && product.purchase > 0 ? product.purchase : mrp / 2;
+      const cost = resolveUnitCost(
+        String(row.productName ?? ""),
+        mrp,
+        product?.purchase
+      );
       items += qty;
       amount += sale;
       profit += sale - cost * qty;
@@ -812,6 +818,7 @@ export default function AddSalePage() {
   };
 
   const handleStartAddBill = () => {
+    setEditSaleTabActive(false);
     if (billTabs.length >= MAX_OPEN_BILLS) {
       showToast("warning", BILL_LIMIT_MESSAGE);
       return;
@@ -825,6 +832,7 @@ export default function AddSalePage() {
   };
 
   const handleStartRunningCustomerBill = () => {
+    setEditSaleTabActive(false);
     if (billTabs.length >= MAX_OPEN_BILLS) {
       showToast("warning", BILL_LIMIT_MESSAGE);
       return;
@@ -1731,6 +1739,7 @@ export default function AddSalePage() {
   };
 
   const switchToBillTab = async (targetId: string) => {
+    setEditSaleTabActive(false);
     if (targetId === activeBillIdRef.current) return;
     await storeCurrentBill();
     const target = billTabs.find((b) => b.id === targetId);
@@ -2112,18 +2121,37 @@ export default function AddSalePage() {
                   <span>Add Bill</span>
                 </button>
               </div>
-              {!isRunningCustomer && <label className={`ml-auto inline-flex flex-none items-center gap-2 whitespace-nowrap text-xs font-medium ${
-                (selectedCustomer?.phone || customerPhone).trim() ? "text-slate-700" : "text-slate-400"
-              }`}>
-                <input
-                  type="checkbox"
-                  checked={autoSendWhatsapp}
-                  onChange={(event) => setAutoSendWhatsapp(event.target.checked)}
-                  disabled={submitting || !(selectedCustomer?.phone || customerPhone).trim()}
-                  className="h-4 w-4 accent-green-600"
-                />
-                Send Bill via WhatsApp
-              </label>}
+              <div className="ml-auto flex flex-none items-center gap-3">
+                {!isRunningCustomer && (
+                  <label className={`inline-flex flex-none items-center gap-2 whitespace-nowrap text-xs font-medium ${
+                    (selectedCustomer?.phone || customerPhone).trim() ? "text-slate-700" : "text-slate-400"
+                  }`}>
+                    <input
+                      type="checkbox"
+                      checked={autoSendWhatsapp}
+                      onChange={(event) => setAutoSendWhatsapp(event.target.checked)}
+                      disabled={submitting || !(selectedCustomer?.phone || customerPhone).trim()}
+                      className="h-4 w-4 accent-green-600"
+                    />
+                    Send Bill via WhatsApp
+                  </label>
+                )}
+
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={editSaleTabActive}
+                  onClick={() => setEditSaleTabActive((active) => !active)}
+                  className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-bold transition ${
+                    editSaleTabActive
+                      ? "border-teal-600 bg-teal-600 text-white shadow-sm"
+                      : "border-teal-500 bg-teal-50 text-teal-700 hover:bg-teal-100"
+                  }`}
+                >
+                  <Pencil className="h-3.5 w-3.5" />
+                  <span>Edit Sale</span>
+                </button>
+              </div>
             </div>
 
             {isAddingBill && (
@@ -2246,7 +2274,10 @@ export default function AddSalePage() {
             )}
           </div>
 
-          {/* Product Details for Sales */}
+          {/* Edit Sale Tab View or Product Details for Sales */}
+          {editSaleTabActive ? (
+            <DesktopEditSalePanel />
+          ) : (
           <div suppressHydrationWarning className="bg-white rounded-xl p-4 border border-slate-200">
             <div className="mb-3 flex flex-wrap items-center gap-3">
               <div className="order-3 flex w-full flex-1 items-center justify-center sm:order-none sm:w-auto" aria-live="polite">
@@ -2448,6 +2479,7 @@ export default function AddSalePage() {
               </table>
             </div>
           </div>
+          )}
         </div>
 
         {/* RIGHT SECTION: YOUR CART & PAYMENT DETAILS */}
@@ -2708,6 +2740,8 @@ export default function AddSalePage() {
       </div>
 
       {/* Leaves room for the fixed totals bar so the last cards stay clickable */}
+      {!editSaleTabActive && (
+      <>
       <div aria-hidden="true" className="h-24" />
 
       <div className="fixed inset-x-0 bottom-0 z-40 border-t border-slate-200 bg-white/95 px-4 py-2 shadow-[0_-4px_12px_rgba(15,23,42,0.08)] backdrop-blur">
@@ -2757,6 +2791,8 @@ export default function AddSalePage() {
         </div>
       </div>
       <div aria-hidden="true" className="h-28" />
+      </>
+      )}
 
       {receivedDialogOpen && (
         <div

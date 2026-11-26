@@ -121,15 +121,30 @@ body {
 }
 
 .login-footer {
-  padding: 6px 16px;
+  padding: 10px 16px;
+}
+
+@media (min-width: 640px) {
+  .login-footer {
+    padding: 6px 16px;
+  }
 }
 
 /* Stacked layouts (and very short windows) still scroll normally */
 @media (max-width: 1023px), (max-height: 560px) {
   .login-page {
     height: auto;
-    flex: 1 1 auto;
+    flex: 1 1 0%;
     overflow-y: auto;
+  }
+
+  .login-main {
+    flex: 1 0 auto;
+    min-height: auto;
+  }
+
+  .login-footer {
+    flex-shrink: 0;
   }
 }
 

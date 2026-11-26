@@ -5,11 +5,22 @@ import ToastProvider from "@/components/ToastProvider";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Kherwal Bazaar - Udhar Recovery System",
+  title: "UDHAAR - Recovery System",
+  applicationName: "UDHAAR",
   description:
-    "Admin dashboard for Kherwal Bazaar Udhar Recovery System.",
+    "Kherwal Bazaar - Manage sales, customer credit, and recovery tracking with ease.",
+  manifest: "/manifest.json",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: "UDHAAR",
+  },
   icons: {
-    icon: "/icon.png",
+    icon: [
+      { url: "/icon-192.png", sizes: "192x192", type: "image/png" },
+      { url: "/icon.png", sizes: "512x512", type: "image/png" },
+    ],
+    apple: "/icon.png",
   },
 };
 
@@ -28,6 +39,12 @@ export default function RootLayout({
   return (
     <html lang="en">
       <head>
+        <link rel="apple-touch-icon" href="/icon.png" />
+        <meta name="application-name" content="UDHAAR" />
+        <meta name="mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+        <meta name="apple-mobile-web-app-title" content="UDHAAR" />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link
           rel="preconnect"
@@ -43,7 +60,7 @@ export default function RootLayout({
           rel="stylesheet"
         />
       </head>
-      <body className="bg-[#f3f4f8] text-slate-800 flex flex-col h-screen overflow-hidden">
+      <body className="bg-[#f3f4f8] text-slate-800 flex flex-col h-dvh overflow-hidden">
         <ToastProvider>
           <AuthGate>{children}</AuthGate>
           <FirebaseAnalytics />

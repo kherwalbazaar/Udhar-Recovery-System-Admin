@@ -9,8 +9,8 @@ import { db } from '@/lib/firebase';
 import { signOut } from '@/lib/auth';
 import {
   Bell, Users, CheckCircle2,
-  Calendar, User2, UserPlus, ArrowLeft, Phone, User,
-  FileText, Zap, Plus, Trash2, Edit2, Check, ShoppingCart,
+  User2, UserPlus, ArrowLeft, Phone, User,
+  FileText, Plus, Trash2, Edit2, ShoppingCart,
   Wallet, ArrowDownLeft, ArrowUpRight, Search, Minus,
   ChevronDown, ChevronUp, ChevronRight, MapPin, Save,
   Package, PackagePlus, Truck, LogOut,
@@ -18,6 +18,12 @@ import {
 import MobileNavbar from '@/components/MobileNavbar';
 import MobileSalePOS from '@/components/MobileSalePOS';
 import MobileAddProduct from '@/components/MobileAddProduct';
+import {
+  buildWhatsAppBillText,
+  createCustomerLedgerPdf,
+  formatWhatsAppPhone,
+  type LedgerBillEntry,
+} from '@/lib/customer-ledger-pdf';
 
 export const MOBILE_ROUTE_TO_TAB: Record<string, string> = {
   '/': 'home',
@@ -212,7 +218,6 @@ export default function MobileUserApp({ currentPath }: { currentPath: string }) 
   const [showSuccess, setShowSuccess] = useState(false);
   const [savedData, setSavedData] = useState<SavedData | null>(null);
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
-  const [activeReminderCustomer, setActiveReminderCustomer] = useState<(Customer & { balance?: number }) | null>(null);
   const [showCustomerDetailsPage, setShowCustomerDetailsPage] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isEditingCustomerProfile, setIsEditingCustomerProfile] = useState(false);
@@ -221,10 +226,6 @@ export default function MobileUserApp({ currentPath }: { currentPath: string }) 
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [customerBalances, setCustomerBalances] = useState<Record<string, number>>({});
   const [customerLastTrans, setCustomerLastTrans] = useState<Record<string, number>>({});
-
-  const [items, setItems] = useState<Item[]>([]);
-  const [newItem, setNewItem] = useState<Item>(() => ({ name: '', price: 0, qty: 1, createdAt: Date.now() }));
-  const totalAmount = items.reduce((sum, item) => sum + item.price * item.qty, 0);
 
   const [showTransactionForm, setShowTransactionForm] = useState(false);
   const [showNavbar, setShowNavbar] = useState(true);
@@ -255,8 +256,6 @@ export default function MobileUserApp({ currentPath }: { currentPath: string }) 
     isLegacyItem: boolean;
   } | null>(null);
   const [editTransForm, setEditTransForm] = useState({ itemName: '', amount: '', date: '' });
-  const reminderCardRef = useRef<HTMLDivElement>(null);
-  const [qrDataUrl, setQrDataUrl] = useState('');
   const [sales, setSales] = useState<SaleRecord[]>([]);
   const [catalogProducts, setCatalogProducts] = useState<{ name: string; mrp: number; sale: number }[]>([]);
   const [selectedSales, setSelectedSales] = useState<Set<string>>(new Set());
@@ -264,12 +263,7 @@ export default function MobileUserApp({ currentPath }: { currentPath: string }) 
   const [formData, setFormData] = useState({
     customerPhone: '',
     customerName: '',
-    collectionType: 'installments',
-    frequency: 'monthly',
-    numInstallments: '6',
-    startDate: '',
-    paymentMethod: 'upi',
-    penaltyOption: 'charge-auto',
+    customerAddress: '',
   });
 
   const [upcomingFilter, setUpcomingFilter] = useState<string>('all');
@@ -497,6 +491,7 @@ export default function MobileUserApp({ currentPath }: { currentPath: string }) 
       activeTab === 'detail' ||
       activeTab === 'add' ||
       activeTab === 'addProduct' ||
+      showDeleteConfirm ||
       showCustomerDetailsPage ||
       showTransactionForm ||
       editingTrans !== null ||
@@ -511,7 +506,9 @@ export default function MobileUserApp({ currentPath }: { currentPath: string }) 
     const handlePopState = () => {
       if (backGuard) return;
       backGuard = true;
-      if (isEditingCustomerProfile) {
+      if (showDeleteConfirm) {
+        setShowDeleteConfirm(false);
+      } else if (isEditingCustomerProfile) {
         setIsEditingCustomerProfile(false);
       } else if (showCustomerDetailsPage) {
         setShowCustomerDetailsPage(false);
@@ -546,6 +543,7 @@ export default function MobileUserApp({ currentPath }: { currentPath: string }) 
       window.removeEventListener('popstate', handlePopState);
     };
   }, [
+    showDeleteConfirm,
     showCustomerDetailsPage,
     showTransactionForm,
     editingTrans,
@@ -558,86 +556,28 @@ export default function MobileUserApp({ currentPath }: { currentPath: string }) 
     currentPath,
   ]);
 
-  useEffect(() => {
-    if (!selectedCustomer) return;
-    const bal = customerBalances[selectedCustomer.id] ?? calculateBalance(selectedCustomer, customerTransactions);
-    const upi = `upi://pay?pa=9583252256-3@axl&pn=KHERWAL%20BAZAAR&am=${Math.abs(bal)}&cu=INR`;
-    import('qrcode').then(({ default: QRCode }) => {
-      QRCode.toDataURL(upi, { width: 200, margin: 1, color: { dark: '#1e293b', light: '#FFFFFF' } }).then(setQrDataUrl);
-    });
-  }, [selectedCustomer, customerBalances, customerTransactions]);
-
   const todaySalesAmt = combinedSales.filter((s) => isToday(s.createdAt)).reduce((s, r) => s + (r.sale || 0), 0);
   const todaySalesCount = combinedSales.filter((s) => isToday(s.createdAt)).length;
 
-  const addItem = () => {
-    if (newItem.name.trim() && (newItem.price > 0 || (newItem.mrp && newItem.mrp > 0))) {
-      const mrpVal = newItem.mrp ? Number(newItem.mrp) : newItem.price ? Number(newItem.price) : 0;
-      const priceVal = newItem.price ? Number(newItem.price) : mrpVal;
-      setItems([
-        ...items,
-        {
-          name: newItem.name.trim(),
-          mrp: mrpVal,
-          price: priceVal,
-          qty: 1,
-          createdAt: Date.now(),
-        },
-      ]);
-      setNewItem({ name: '', mrp: 0, price: 0, qty: 1, createdAt: Date.now() });
-    }
-  };
-
-  const editItem = (index: number) => {
-    setNewItem({ ...items[index] });
-    setItems(items.filter((_, i) => i !== index));
-  };
-
-  const removeItem = (index: number) => {
-    setItems(items.filter((_, i) => i !== index));
-  };
-
   const saveCustomer = async () => {
-    if (!formData.customerName || !formData.customerPhone || items.length === 0) return;
-    if (formData.collectionType === 'installments' && !formData.startDate) return;
-    if (formData.collectionType === 'onetime' && !formData.startDate) return;
+    if (!formData.customerName.trim() || !formData.customerPhone.trim()) return;
     const now = Date.now();
     const customerRef = push(ref(db, 'customers'));
-    const data = {
-      name: formData.customerName,
-      phone: formData.customerPhone,
+    const data: SavedData = {
+      name: formData.customerName.trim(),
+      phone: formData.customerPhone.trim(),
+      address: formData.customerAddress.trim(),
       items: [],
-      totalAmount,
-      collectionType: formData.collectionType,
-      frequency: formData.collectionType === 'installments' ? formData.frequency : null,
-      numInstallments: formData.collectionType === 'installments' ? formData.numInstallments : null,
-      startDate: formData.startDate,
-      paymentMethod: formData.paymentMethod,
-      penaltyOption: formData.penaltyOption,
+      totalAmount: 0,
+      collectionType: 'khata',
+      frequency: null,
+      numInstallments: null,
+      startDate: '',
+      paymentMethod: 'upi',
+      penaltyOption: 'none',
       createdAt: now,
     };
     await set(customerRef, data);
-    const transPromises = items.map((item, idx) => {
-      const transRef = push(ref(db, `customers/${customerRef.key}/transactions`));
-      return set(transRef, {
-        type: 'gave',
-        amount: item.price * (item.qty || 1),
-        itemName: item.name,
-        date: new Date(now).toISOString().split('T')[0],
-        createdAt: now + idx,
-      });
-    });
-    const salePromises = items.map((item, idx) => {
-      const saleRef = push(ref(db, 'sales'));
-      return set(saleRef, {
-        productName: item.name,
-        mrp: item.mrp || item.price,
-        sale: item.price,
-        date: new Date(now).toISOString().split('T')[0],
-        createdAt: now + idx,
-      });
-    });
-    await Promise.all([...transPromises, ...salePromises]);
     setSavedData(data);
     setShowSuccess(true);
   };
@@ -699,14 +639,8 @@ export default function MobileUserApp({ currentPath }: { currentPath: string }) 
     setFormData({
       customerPhone: '',
       customerName: '',
-      collectionType: 'installments',
-      frequency: 'monthly',
-      numInstallments: '6',
-      startDate: '',
-      paymentMethod: 'upi',
-      penaltyOption: 'charge-auto',
+      customerAddress: '',
     });
-    setItems([]);
     navigateToTab('khata');
   };
 
@@ -872,7 +806,7 @@ export default function MobileUserApp({ currentPath }: { currentPath: string }) 
               <div className="w-11 h-11 bg-green-500 rounded-lg flex items-center justify-center shadow hover:shadow-md transition border-b-4 border-green-700">
                 <PackagePlus className="w-6 h-6 text-white" />
               </div>
-              <p className="text-[11px] font-bold text-center text-green-700">Add New</p>
+              <p className="text-[11px] font-bold text-center text-green-700">Add Product</p>
             </button>
             <button onClick={() => navigateToTab('cashbook')} className="flex flex-col items-center gap-1 cursor-pointer">
               <div className="w-11 h-11 bg-purple-500 rounded-lg flex items-center justify-center shadow hover:shadow-md transition border-b-4 border-purple-700">
@@ -1004,39 +938,51 @@ export default function MobileUserApp({ currentPath }: { currentPath: string }) 
           lastKhataScrollRef.current = st;
         }}
       >
-        <div className="pb-3">
-          <div className="bg-gradient-to-br from-slate-900 to-blue-900 text-white p-3 shadow-lg">
-            <div className="grid grid-cols-2 gap-3">
-              <div className="text-center border-r border-blue-700">
-                <p className="text-sm text-gray-300 mb-2">You will give</p>
-                <h3 className={`text-3xl font-bold mb-2 ${pSum > 0 ? 'text-red-400' : 'text-white'}`}>
-                  ₹ {pSum.toLocaleString()}
-                </h3>
-                <p className="text-sm text-gray-400">{pCount} Customers</p>
-              </div>
-              <div className="text-center">
-                <p className="text-sm text-gray-300 mb-2">You will get</p>
-                <h3 className={`text-3xl font-bold mb-2 ${nSum > 0 ? 'text-green-400' : 'text-white'}`}>
-                  ₹ {nSum.toLocaleString()}
-                </h3>
-                <p className="text-sm text-gray-400">{nCount} Customers</p>
-              </div>
-            </div>
+        {/* Separated Top Header */}
+        <div className="sticky top-0 z-20 bg-gradient-to-r from-slate-900 to-blue-900 text-white px-3 py-2.5 shadow-md flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <button
+              type="button"
+              onClick={() => navigateToTab('home')}
+              aria-label="Back to Home"
+              className="rounded-full bg-white/15 hover:bg-white/25 p-1.5 text-white transition flex items-center justify-center shrink-0"
+            >
+              <ArrowLeft className="w-5 h-5" />
+            </button>
+            <h2 className="text-base font-bold tracking-wide truncate">
+              Customers ({customers.length})
+            </h2>
           </div>
-        </div>
-
-        <div className="sticky top-0 z-20 bg-white/95 backdrop-blur-sm border-y border-gray-200 px-3 py-2 flex items-center justify-between mb-1">
-          <span className="text-xs font-bold text-gray-700 uppercase tracking-wider">
-            Customers ({customers.length})
-          </span>
           <button
             type="button"
             onClick={() => navigateToTab('add')}
-            className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-sm transition cursor-pointer"
+            className="bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-sm transition cursor-pointer shrink-0"
           >
             <UserPlus className="w-3.5 h-3.5" />
             <span>Add Customer</span>
           </button>
+        </div>
+
+        {/* Separated Amount Summary Card */}
+        <div className="px-3 pt-3 pb-2">
+          <div className="bg-gradient-to-br from-slate-900 to-blue-900 text-white rounded-2xl p-3.5 shadow-lg border border-blue-800/40">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="text-center border-r border-blue-700/70 pr-2">
+                <p className="text-xs font-medium text-gray-300 mb-1">You will give</p>
+                <h3 className={`text-2xl font-bold mb-1 ${pSum > 0 ? 'text-red-400' : 'text-white'}`}>
+                  ₹ {pSum.toLocaleString()}
+                </h3>
+                <p className="text-xs text-gray-400">{pCount} Customers</p>
+              </div>
+              <div className="text-center pl-2">
+                <p className="text-xs font-medium text-gray-300 mb-1">You will get</p>
+                <h3 className={`text-2xl font-bold mb-1 ${nSum > 0 ? 'text-green-400' : 'text-white'}`}>
+                  ₹ {nSum.toLocaleString()}
+                </h3>
+                <p className="text-xs text-gray-400">{nCount} Customers</p>
+              </div>
+            </div>
+          </div>
         </div>
 
         <div className="px-2 pt-1 space-y-1">
@@ -1115,212 +1061,181 @@ export default function MobileUserApp({ currentPath }: { currentPath: string }) 
     );
   };
 
-  const generatePDF = async () => {
-    if (!selectedCustomer) return;
+  const getSelectedCustomerLedgerEntries = (): LedgerBillEntry[] => {
+    if (!selectedCustomer) return [];
     const c = selectedCustomer;
-    const { jsPDF } = await import('jspdf');
-    const itemEntries = (c.items || []).map((item, idx) => ({
+    const itemEntries: LedgerBillEntry[] = (c.items || []).map((item, idx) => ({
       createdAt: item.createdAt || c.createdAt + idx,
       name: item.name,
       amount: item.price * item.qty,
       type: 'gave' as const,
     }));
-    const transEntries = (customerTransactions || []).map((t) => ({
+    const transEntries: LedgerBillEntry[] = (customerTransactions || []).map((t) => ({
       createdAt: t.createdAt,
+      date: t.date,
       name: t.itemName,
       amount: t.amount,
-      type: t.type as 'gave' | 'got',
+      type: t.type,
     }));
-    const sorted = [...itemEntries, ...transEntries].sort((a, b) => a.createdAt - b.createdAt);
-    let running = 0;
-    const withBalance = sorted.map((e) => {
-      if (e.type === 'gave') running += e.amount;
-      else running -= e.amount;
-      return { ...e, balance: running };
-    });
-    const grandDebit = withBalance.filter((e) => e.type === 'gave').reduce((s, e) => s + e.amount, 0);
-    const grandCredit = withBalance.filter((e) => e.type === 'got').reduce((s, e) => s + e.amount, 0);
+    return [...itemEntries, ...transEntries];
+  };
 
-    const doc = new jsPDF({ unit: 'mm', format: 'a4' });
-    const pw = 210,
-      m = 12,
-      cw = pw - 2 * m;
-    const blue = [30, 58, 95] as const;
-    const g = (y: number) => (y > 280 ? (doc.addPage(), m) : y);
-
-    doc.setFillColor(...blue);
-    doc.rect(0, 0, pw, 38, 'F');
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(16);
-    doc.setTextColor(255, 255, 255);
-    doc.text('KHERWAL BAZAAR', pw / 2, 17, { align: 'center' });
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(8);
-    doc.text('UDHAR RECOVERY SYSTEM', pw / 2, 25, { align: 'center' });
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(11);
-    doc.setTextColor(147, 197, 253);
-    doc.text('CUSTOMER LEDGER REPORT', pw / 2, 35, { align: 'center' });
-
-    let y = 46;
-    doc.setFillColor(243, 244, 246);
-    doc.roundedRect(m, y, cw, 24, 2, 2, 'F');
-    doc.setFontSize(10);
-    doc.setFont('helvetica', 'bold');
-    doc.setTextColor(...blue);
-    doc.text(`Customer Name : ${c.name}`, m + 4, y + 8);
-    doc.setFont('helvetica', 'normal');
-    doc.setTextColor(55, 65, 81);
-    doc.text(`Phone Number  : ${c.phone}`, m + 4, y + 18);
-    y = 78;
-
-    const half = cw / 2 - 3;
-    doc.setFillColor(243, 244, 246);
-    doc.roundedRect(m, y, half, 20, 2, 2, 'F');
-    doc.setFontSize(7);
-    doc.setFont('helvetica', 'bold');
-    doc.setTextColor(107, 114, 128);
-    doc.text('Summary Period', m + 4, y + 7);
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(9);
-    doc.setTextColor(55, 65, 81);
-    const fd = sorted.length ? new Date(sorted[0].createdAt) : new Date();
-    const ld = sorted.length ? new Date(sorted[sorted.length - 1].createdAt) : new Date();
-    doc.text(
-      `${fd.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}  →  ${ld.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}`,
-      m + 4,
-      y + 15,
+  const generatePDF = async () => {
+    if (!selectedCustomer) return;
+    const c = selectedCustomer;
+    const { doc, blob, fileName } = await createCustomerLedgerPdf(
+      c,
+      getSelectedCustomerLedgerEntries(),
     );
-    doc.roundedRect(m + half + 6, y, half, 20, 2, 2, 'F');
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(7);
-    doc.setTextColor(107, 114, 128);
-    doc.text('No. of Entries', m + half + 10, y + 7);
-    doc.setFontSize(12);
-    doc.setTextColor(...blue);
-    doc.text(`${sorted.length}`, m + half + 10, y + 16);
-    y = 106;
-
-    const cx = [m, m + 26, m + 72, m + 114, m + 156];
-    doc.setFillColor(...blue);
-    doc.rect(m, y, cw, 7, 'F');
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(7);
-    doc.setTextColor(255, 255, 255);
-    doc.text('Date', cx[0] + 2, y + 5);
-    doc.text('Details', cx[1] + 2, y + 5);
-    doc.text('Debit (-)', cx[2] + 2, y + 5);
-    doc.text('Credit (+)', cx[3] + 2, y + 5);
-    doc.text('Balance', cx[4] + 2, y + 5);
-    y += 7;
-
-    for (let i = 0; i < withBalance.length; i++) {
-      y = g(y);
-      const e = withBalance[i];
-      const d = new Date(e.createdAt);
-      const ds = `${d.getDate()} ${d.toLocaleString('default', { month: 'short' })}`;
-      const isGave = e.type === 'gave';
-      const bal = e.balance;
-      if (i % 2 === 0) {
-        doc.setFillColor(249, 250, 251);
-        doc.rect(m, y, cw, 6, 'F');
-      }
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(7);
-      doc.setTextColor(55, 65, 81);
-      doc.text(ds, cx[0] + 2, y + 4);
-      doc.text(e.name.length > 22 ? e.name.substring(0, 20) + '..' : e.name, cx[1] + 2, y + 4);
-      if (isGave) {
-        doc.setTextColor(220, 38, 38);
-        doc.text(`₹${e.amount}`, cx[2] + 2, y + 4);
-      } else {
-        doc.setTextColor(22, 163, 74);
-        doc.text(`₹${e.amount}`, cx[3] + 2, y + 4);
-      }
-      if (bal > 0) doc.setTextColor(220, 38, 38);
-      else if (bal < 0) doc.setTextColor(22, 163, 74);
-      else doc.setTextColor(107, 114, 128);
-      doc.setFont('helvetica', 'bold');
-      doc.text(`₹${Math.abs(bal)}`, cx[4] + 2, y + 4);
-      y += 6;
-    }
-
-    y = g(y + 3);
-    doc.setFillColor(...blue);
-    doc.rect(m, y, cw, 8, 'F');
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(8);
-    doc.setTextColor(255, 255, 255);
-    doc.text('GRAND TOTAL', cx[0] + 2, y + 5.5);
-    doc.text(`₹${grandDebit}`, cx[2] + 2, y + 5.5);
-    doc.text(`₹${grandCredit}`, cx[3] + 2, y + 5.5);
-    const fb = grandDebit - grandCredit;
-    const fbCol = fb > 0 ? [255, 100, 100] : fb < 0 ? [134, 239, 128] : [200, 200, 200];
-    doc.setTextColor(fbCol[0], fbCol[1], fbCol[2]);
-    doc.text(`₹${Math.abs(fb)}`, cx[4] + 2, y + 5.5);
-    y += 14;
-
-    const now = new Date();
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(7);
-    doc.setTextColor(107, 114, 128);
-    doc.setDrawColor(...blue);
-    doc.setLineWidth(0.5);
-    doc.line(m, y - 4, pw - m, y - 4);
-    doc.text(
-      `Report Generated: ${now.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })} | ${now.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}`,
-      m,
-      y,
-    );
-    doc.text('Generated by: KHERWAL BAZAAR - Udhar Recovery System', m, y + 4);
-
-    const blob = doc.output('blob');
-    const file = new File([blob], `${c.name.replace(/\s+/g, '_')}_Ledger.pdf`, { type: 'application/pdf' });
+    const file = new File([blob], fileName, { type: 'application/pdf' });
     try {
       if (navigator.share && navigator.canShare?.({ files: [file] })) {
-        await navigator.share({ files: [file], title: `${c.name} - Ledger` });
+        await navigator.share({ files: [file], title: `${c.name} - Ledger Bill` });
         return;
       }
     } catch {}
-    doc.save(`${c.name.replace(/\s+/g, '_')}_Ledger.pdf`);
+    doc.save(fileName);
+  };
+
+  const sendCustomerWhatsAppBill = async () => {
+    if (!selectedCustomer) return;
+    const c = selectedCustomer;
+    const fullPhone = formatWhatsAppPhone(c.phone);
+    const waWin = fullPhone ? window.open('', '_blank') : null;
+    const entries = getSelectedCustomerLedgerEntries();
+    const { doc, fileName } = await createCustomerLedgerPdf(c, entries);
+    doc.save(fileName);
+
+    const shareText = buildWhatsAppBillText(c, entries);
+    const waUrl = fullPhone
+      ? `https://wa.me/${fullPhone}?text=${encodeURIComponent(shareText)}`
+      : `https://wa.me/?text=${encodeURIComponent(shareText)}`;
+
+    if (waWin && !waWin.closed) {
+      waWin.location.href = waUrl;
+    } else {
+      window.open(waUrl, '_blank');
+    }
+  };
+
+  const renderReminderCardCanvas = async (
+    cust: Customer,
+    bal: number,
+    qrUrl: string,
+  ): Promise<HTMLCanvasElement> => {
+    const scale = 3;
+    const w = 400;
+    const hasQr = Boolean(qrUrl);
+    const h = hasQr ? 470 : 320;
+    const canvas = document.createElement('canvas');
+    canvas.width = w * scale;
+    canvas.height = h * scale;
+    const ctx = canvas.getContext('2d')!;
+    ctx.scale(scale, scale);
+
+    // Card background
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, w, h);
+
+    // Header gradient (#0f172a -> #1e3a8a) without CSS lab()/oklch() parsing
+    const grad = ctx.createLinearGradient(0, 0, 0, 86);
+    grad.addColorStop(0, '#0f172a');
+    grad.addColorStop(1, '#1e3a8a');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, w, 86);
+
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 18px system-ui, -apple-system, sans-serif';
+    ctx.fillText('KHERWAL BAZAAR', w / 2, 40);
+    ctx.fillStyle = '#bfdbfe';
+    ctx.font = '600 10px system-ui, -apple-system, sans-serif';
+    ctx.fillText('UDHAR RECOVERY SYSTEM', w / 2, 60);
+
+    // Body
+    ctx.fillStyle = '#6b7280';
+    ctx.font = '600 11px system-ui, -apple-system, sans-serif';
+    ctx.fillText('PAYMENT REMINDER', w / 2, 114);
+
+    ctx.fillStyle = '#1f2937';
+    ctx.font = 'bold 20px system-ui, -apple-system, sans-serif';
+    ctx.fillText(cust.name, w / 2, 144, w - 48);
+
+    // Pending Amount box
+    ctx.fillStyle = '#fef2f2';
+    ctx.beginPath();
+    ctx.roundRect(24, 160, w - 48, 76, 10);
+    ctx.fill();
+
+    ctx.fillStyle = '#6b7280';
+    ctx.font = '500 10px system-ui, -apple-system, sans-serif';
+    ctx.fillText('Pending Amount', w / 2, 182);
+    ctx.fillStyle = '#dc2626';
+    ctx.font = '800 30px system-ui, -apple-system, sans-serif';
+    ctx.fillText(`₹${bal.toLocaleString()}`, w / 2, 220);
+
+    // Collection & Phone row
+    ctx.fillStyle = '#9ca3af';
+    ctx.font = '500 10px system-ui, -apple-system, sans-serif';
+    ctx.fillText('Collection', w * 0.3, 258);
+    ctx.fillText('Phone', w * 0.7, 258);
+
+    const collLabel = (cust.collectionType || 'khata').replace(/^\w/, (ch) => ch.toUpperCase());
+    ctx.fillStyle = '#4b5563';
+    ctx.font = '600 13px system-ui, -apple-system, sans-serif';
+    ctx.fillText(collLabel, w * 0.3, 276);
+    ctx.fillText(cust.phone || 'N/A', w * 0.7, 276);
+
+    if (hasQr) {
+      await new Promise<void>((resolve) => {
+        const img = new window.Image();
+        img.onload = () => {
+          ctx.drawImage(img, (w - 128) / 2, 292, 128, 128);
+          resolve();
+        };
+        img.onerror = () => resolve();
+        img.src = qrUrl;
+      });
+    }
+
+    const dividerY = hasQr ? 434 : 292;
+    ctx.strokeStyle = '#e5e7eb';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(24, dividerY);
+    ctx.lineTo(w - 24, dividerY);
+    ctx.stroke();
+
+    ctx.fillStyle = '#6b7280';
+    ctx.font = '500 11px system-ui, -apple-system, sans-serif';
+    ctx.fillText('Scan to pay via UPI', w / 2, dividerY + 18);
+    ctx.fillStyle = '#9ca3af';
+    ctx.font = '400 10px system-ui, -apple-system, sans-serif';
+    ctx.fillText('Thank you for your business!', w / 2, dividerY + 32);
+
+    return canvas;
   };
 
   const sendCustomerReminder = async (cust: Customer & { balance?: number }) => {
-    setActiveReminderCustomer(cust);
     const bal = Math.abs(cust.balance ?? customerBalances[cust.id] ?? calculateBalance(cust, customerTransactions));
     const upi = `upi://pay?pa=9583252256-3@axl&pn=KHERWAL%20BAZAAR&am=${bal}&cu=INR`;
+    let qrUrl = '';
     try {
       const { default: QRCode } = await import('qrcode');
-      const url = await QRCode.toDataURL(upi, { width: 200, margin: 1, color: { dark: '#1e293b', light: '#FFFFFF' } });
-      setQrDataUrl(url);
+      qrUrl = await QRCode.toDataURL(upi, { width: 256, margin: 1, color: { dark: '#1e293b', light: '#FFFFFF' } });
     } catch {}
 
-    setTimeout(async () => {
-      if (!reminderCardRef.current) return;
-      const { default: html2canvas } = await import('html2canvas');
-      const qrImg = reminderCardRef.current.querySelector('img[alt="UPI QR"]') as HTMLImageElement | null;
-      if (qrImg && !qrImg.complete) {
-        await new Promise<void>((resolve) => {
-          qrImg.onload = () => resolve();
-          qrImg.onerror = () => resolve();
-        });
-      }
-      const canvas = await html2canvas(reminderCardRef.current, {
-        scale: 3,
-        useCORS: true,
-        backgroundColor: '#ffffff',
-      });
+    const canvas = await renderReminderCardCanvas(cust, bal, qrUrl);
+    const phone = cust.phone.replace(/\s/g, '');
+    const fullPhone = phone.startsWith('+')
+      ? phone.substring(1)
+      : phone.startsWith('91') && phone.length === 12
+        ? phone
+        : `91${phone}`;
+    const shareText = `🔔 *Payment Reminder*\n\nDear ${cust.name},\n\nPending Amount: *₹${bal}*\n\n📱 *Pay via UPI:* ${upi}\n\n- KHERWAL BAZAAR`;
 
-      const phone = cust.phone.replace(/\s/g, '');
-      const fullPhone = phone.startsWith('+')
-        ? phone.substring(1)
-        : phone.startsWith('91') && phone.length === 12
-          ? phone
-          : `91${phone}`;
-      const payLink = `upi://pay?pa=9583252256-3@axl&pn=KHERWAL%20BAZAAR&am=${bal}&cu=INR`;
-      const shareText = `🔔 *Payment Reminder*\n\nDear ${cust.name},\n\nPending Amount: *₹${bal}*\n\n📱 *Pay via UPI:* ${payLink}\n\n- KHERWAL BAZAAR`;
-
-      const blob = await new Promise<Blob>((resolve) => canvas.toBlob((b) => resolve(b!), 'image/png'));
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob((b) => resolve(b), 'image/png'));
+    if (blob) {
       const file = new File([blob], `${cust.name.replace(/\s+/g, '_')}_Reminder.png`, { type: 'image/png' });
       try {
         if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
@@ -1328,8 +1243,8 @@ export default function MobileUserApp({ currentPath }: { currentPath: string }) 
           return;
         }
       } catch {}
-      window.open(`https://wa.me/${fullPhone}?text=${encodeURIComponent(shareText)}`, '_blank');
-    }, 600);
+    }
+    window.open(`https://wa.me/${fullPhone}?text=${encodeURIComponent(shareText)}`, '_blank');
   };
 
   const sendReminder = async () => {
@@ -1352,20 +1267,31 @@ export default function MobileUserApp({ currentPath }: { currentPath: string }) 
     const c = selectedCustomer;
     return (
       <div className="flex-1 min-h-0 overflow-y-auto pb-20">
-        <div className="bg-gradient-to-b from-slate-900 to-blue-900 text-white px-6 pt-6 pb-2">
-          <div className="flex items-center">
+        <div className="bg-gradient-to-b from-slate-900 to-blue-900 text-white px-4 pt-4 pb-3">
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedCustomer(null);
+                navigateToTab('khata');
+              }}
+              aria-label="Back to Khata"
+              className="rounded-full bg-white/15 hover:bg-white/25 p-1.5 text-white transition flex items-center justify-center shrink-0"
+            >
+              <ArrowLeft className="w-5 h-5" />
+            </button>
             <div
-              className="flex-1 cursor-pointer group"
+              className="flex-1 min-w-0 cursor-pointer group"
               onClick={() => {
                 setShowDeleteConfirm(false);
                 setShowCustomerDetailsPage(true);
               }}
             >
-              <h2 className="text-2xl font-bold flex items-center gap-1 group-hover:text-blue-200 transition">
-                {c.name}{' '}
-                <ChevronRight className="w-5 h-5 text-blue-300 group-hover:translate-x-0.5 transition-transform" />
+              <h2 className="text-xl font-bold flex items-center gap-1 group-hover:text-blue-200 transition truncate">
+                <span className="truncate">{c.name}</span>{' '}
+                <ChevronRight className="w-5 h-5 text-blue-300 group-hover:translate-x-0.5 transition-transform shrink-0" />
               </h2>
-              <p className="text-sm text-gray-300">{c.phone}</p>
+              <p className="text-xs text-gray-300">{c.phone}</p>
             </div>
             {(() => {
               const due = customerBalances[c.id] ?? calculateBalance(c, customerTransactions);
@@ -1391,10 +1317,10 @@ export default function MobileUserApp({ currentPath }: { currentPath: string }) 
             <FileText className="w-4 h-4 mb-0.5" /> Report
           </button>
           <button
-            onClick={sendReminder}
+            onClick={sendCustomerWhatsAppBill}
             className="flex-1 flex flex-col items-center bg-white px-1 py-2 text-[10px] font-semibold text-gray-700 hover:bg-slate-50 transition cursor-pointer"
           >
-            <Image src="/whatsapp.png" alt="WhatsApp" width={20} height={20} className="mb-0.5" /> Reminder
+            <Image src="/whatsapp.png" alt="WhatsApp" width={20} height={20} className="mb-0.5" /> WhatsApp
           </button>
           <button
             onClick={() => selectedCustomer && sendSMSCustomer(selectedCustomer)}
@@ -1695,44 +1621,34 @@ export default function MobileUserApp({ currentPath }: { currentPath: string }) 
 
   const renderAddCustomer = () => (
     <div className="flex-1 min-h-0 overflow-y-auto pb-10">
-      <div className="bg-gradient-to-b from-blue-600 to-blue-700 text-white px-6 py-6">
+      <div className="bg-gradient-to-b from-blue-600 to-blue-700 text-white px-4 py-5">
         <div className="flex items-center gap-3">
           <button
             onClick={() => navigateToTab('khata')}
-            className="hover:bg-blue-500 rounded-full p-1.5 transition flex items-center justify-center"
+            className="rounded-full bg-white/15 hover:bg-white/25 p-1.5 transition flex items-center justify-center shrink-0"
             aria-label="Back to Khata"
           >
-            <ArrowLeft className="w-6 h-6" />
+            <ArrowLeft className="w-5 h-5" />
           </button>
-          <div className="flex-1">
+          <div className="flex-1 min-w-0">
             {formData.customerName ? (
               <>
-                <h2 className="text-xl font-bold">{formData.customerName}</h2>
-                <p className="text-sm text-blue-100">
-                  {items.length > 0 ? items.map((i) => i.name).join(', ') : formData.customerPhone || 'New Customer'}
-                </p>
+                <h2 className="text-xl font-bold truncate">{formData.customerName}</h2>
+                <p className="text-sm text-blue-100">{formData.customerPhone || 'New Customer'}</p>
               </>
             ) : (
               <>
-                <h2 className="text-2xl font-bold">Add Customer</h2>
-                <p className="text-sm text-blue-100">Create New Mandate</p>
+                <h2 className="text-xl font-bold">Add Customer</h2>
+                <p className="text-xs text-blue-100">Add new customer to Khata</p>
               </>
             )}
           </div>
         </div>
-        {formData.customerName && (
-          <div className="mt-3 flex items-center gap-4 text-sm">
-            <span className="text-blue-200">Amount: ₹{totalAmount}</span>
-            {formData.collectionType === 'installments' && (
-              <span className="text-blue-200">{formData.numInstallments} installments</span>
-            )}
-          </div>
-        )}
       </div>
 
-      <div className="px-4 pb-6 space-y-6 max-w-full">
+      <div className="px-4 py-5 space-y-5 max-w-full">
         <div>
-          <h3 className="text-lg font-bold text-blue-600 mb-4">1. Customer Details</h3>
+          <h3 className="text-base font-bold text-blue-600 mb-4">Customer Details</h3>
           <div className="space-y-4">
             <div>
               <label className="text-xs font-semibold text-gray-700 flex items-center gap-1">
@@ -1741,11 +1657,13 @@ export default function MobileUserApp({ currentPath }: { currentPath: string }) 
               </label>
               <input
                 required
-                type="number"
+                type="tel"
+                inputMode="numeric"
+                maxLength={10}
                 placeholder="Mobile Number"
                 value={formData.customerPhone}
-                onChange={(e) => setFormData({ ...formData, customerPhone: e.target.value.slice(0, 10) })}
-                className="w-full mt-2 px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                onChange={(e) => setFormData({ ...formData, customerPhone: e.target.value.replace(/\D/g, '').slice(0, 10) })}
+                className="w-full mt-2 px-4 py-3 bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
             <div>
@@ -1758,286 +1676,29 @@ export default function MobileUserApp({ currentPath }: { currentPath: string }) 
                 placeholder="Name"
                 value={formData.customerName}
                 onChange={(e) => setFormData({ ...formData, customerName: e.target.value })}
-                className="w-full mt-2 px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full mt-2 px-4 py-3 bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
             <div>
               <label className="text-xs font-semibold text-gray-700 flex items-center gap-1">
-                <FileText className="w-4 h-4 text-blue-600" /> Collection For (Item / Bill Details){' '}
-                <span className="text-red-500">*</span>
+                <MapPin className="w-4 h-4 text-blue-600" /> Address (Optional)
               </label>
-              <div className="flex gap-1.5 mt-2">
-                <input
-                  type="text"
-                  placeholder="Items Name"
-                  value={newItem.name}
-                  onChange={(e) => setNewItem({ ...newItem, name: e.target.value })}
-                  className="flex-1 min-w-0 px-3 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-                />
-                <input
-                  type="number"
-                  placeholder="MRP"
-                  value={newItem.mrp || ''}
-                  onChange={(e) => setNewItem({ ...newItem, mrp: e.target.value ? Number(e.target.value) : 0 })}
-                  className="w-20 px-2.5 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm text-center"
-                />
-                <input
-                  type="number"
-                  placeholder="Sale"
-                  value={newItem.price || ''}
-                  onChange={(e) => setNewItem({ ...newItem, price: e.target.value ? Number(e.target.value) : 0 })}
-                  className="w-20 px-2.5 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm text-center"
-                />
-                <button
-                  type="button"
-                  onClick={addItem}
-                  className="bg-blue-600 text-white px-3 py-3 rounded-lg hover:bg-blue-700 flex items-center justify-center shrink-0"
-                >
-                  {newItem.name.trim() && (newItem.price > 0 || (newItem.mrp && newItem.mrp > 0)) ? (
-                    <Check className="w-5 h-5" />
-                  ) : (
-                    <Plus className="w-5 h-5" />
-                  )}
-                </button>
-              </div>
-              {items.length > 0 && (
-                <div className="mt-3 border border-gray-200 rounded-lg overflow-hidden">
-                  {items.map((item, index) => (
-                    <div
-                      key={index}
-                      className={`flex items-center justify-between px-3 py-2 ${index !== items.length - 1 ? 'border-b border-gray-200' : ''}`}
-                    >
-                      <div className="flex items-center gap-3">
-                        <span className="text-sm font-medium text-gray-900">{item.name}</span>
-                        {item.mrp && item.mrp > 0 ? (
-                          <span className="text-xs text-gray-400 line-through">MRP: ₹{item.mrp}</span>
-                        ) : null}
-                        <span className="text-sm font-semibold text-green-600">Sale: ₹{item.price}</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => editItem(index)}
-                          className="w-8 h-8 bg-blue-500 rounded-lg flex items-center justify-center shadow border-b-2 border-blue-700 hover:opacity-90"
-                        >
-                          <Edit2 className="w-4 h-4 text-white" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => removeItem(index)}
-                          className="w-8 h-8 bg-red-500 rounded-lg flex items-center justify-center shadow border-b-2 border-red-700 hover:opacity-90"
-                        >
-                          <Trash2 className="w-4 h-4 text-white" />
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                  <div className="text-right text-lg font-bold text-gray-900 pt-2 pb-1 px-3 border-t border-gray-200 bg-gray-50">
-                    Total: ₹{totalAmount}
-                  </div>
-                </div>
-              )}
+              <input
+                type="text"
+                placeholder="Village, City, Landmark"
+                value={formData.customerAddress}
+                onChange={(e) => setFormData({ ...formData, customerAddress: e.target.value })}
+                className="w-full mt-2 px-4 py-3 bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
             </div>
           </div>
         </div>
-
-        <div>
-          <h3 className="text-lg font-bold text-blue-600 mb-4">2. Collection Type</h3>
-          <div className="space-y-3">
-            <label
-              className={`flex items-center gap-3 p-4 border-2 rounded-lg cursor-pointer transition ${formData.collectionType === 'installments' ? 'border-blue-500 bg-blue-50' : 'border-gray-300'}`}
-            >
-              <input
-                type="radio"
-                name="collectionType"
-                value="installments"
-                checked={formData.collectionType === 'installments'}
-                onChange={(e) => setFormData({ ...formData, collectionType: e.target.value })}
-                className="w-5 h-5"
-              />
-              <div>
-                <div className="font-semibold text-gray-900 flex items-center gap-2">
-                  <Calendar className="w-5 h-5 text-blue-600" /> Collect in Installments
-                </div>
-                <p className="text-xs text-gray-600 mt-1">Collect amount in parts</p>
-              </div>
-            </label>
-            <label
-              className={`flex items-center gap-3 p-4 border-2 rounded-lg cursor-pointer transition ${formData.collectionType === 'onetime' ? 'border-blue-500 bg-blue-50' : 'border-gray-300'}`}
-            >
-              <input
-                type="radio"
-                name="collectionType"
-                value="onetime"
-                checked={formData.collectionType === 'onetime'}
-                onChange={(e) => setFormData({ ...formData, collectionType: e.target.value })}
-                className="w-5 h-5"
-              />
-              <div>
-                <div className="font-semibold text-gray-900 flex items-center gap-2">
-                  <FileText className="w-5 h-5 text-gray-600" /> One Time Payment
-                </div>
-                <p className="text-xs text-gray-600 mt-1">Collect full amount once</p>
-              </div>
-            </label>
-          </div>
-        </div>
-
-        {formData.collectionType === 'onetime' && (
-          <div className="mt-4">
-            <label className="text-xs font-semibold text-gray-700">
-              Due Payment Date <span className="text-red-500">*</span>
-            </label>
-            <input
-              required
-              type="date"
-              value={formData.startDate}
-              min={new Date().toISOString().split('T')[0]}
-              onChange={(e) => setFormData({ ...formData, startDate: e.target.value })}
-              className="w-full mt-2 px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
-        )}
-
-        {formData.collectionType === 'installments' && (
-          <div>
-            <h3 className="text-lg font-bold text-blue-600 mb-4">3. Installment Settings</h3>
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="text-xs font-semibold text-gray-700">
-                    Frequency <span className="text-red-500">*</span>
-                  </label>
-                  <select
-                    required
-                    value={formData.frequency}
-                    onChange={(e) => setFormData({ ...formData, frequency: e.target.value })}
-                    className="w-full mt-2 px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option value="monthly">Monthly</option>
-                    <option value="weekly">Weekly</option>
-                    <option value="daily">Daily</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="text-xs font-semibold text-gray-700">
-                    Number of Installments <span className="text-red-500">*</span>
-                  </label>
-                  <select
-                    required
-                    value={formData.numInstallments}
-                    onChange={(e) => setFormData({ ...formData, numInstallments: e.target.value })}
-                    className="w-full mt-2 px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option value="3">3 Installments</option>
-                    <option value="6">6 Installments</option>
-                    <option value="12">12 Installments</option>
-                  </select>
-                </div>
-              </div>
-              <div>
-                <label className="text-xs font-semibold text-gray-700">
-                  Start Date <span className="text-red-500">*</span>
-                </label>
-                <input
-                  required
-                  type="date"
-                  value={formData.startDate}
-                  min={new Date().toISOString().split('T')[0]}
-                  onChange={(e) => setFormData({ ...formData, startDate: e.target.value })}
-                  className="w-full mt-2 px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-
-              <div className="bg-green-50 border border-green-200 rounded-lg p-4 flex items-center gap-3">
-                <div className="bg-green-600 rounded-full p-2 text-white">📊</div>
-                <div>
-                  <h4 className="font-semibold text-green-900">Installment Summary</h4>
-                  <p className="text-sm text-green-800 mt-1">
-                    ₹{(totalAmount / Number(formData.numInstallments)).toFixed(2)} x {formData.numInstallments} Months = ₹
-                    {totalAmount}
-                  </p>
-                  <p className="text-xs text-green-700 mt-2">
-                    Collection will start from {formData.startDate || '28/04/26'} and repeat every month.
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        <div>
-          <h3 className="text-lg font-bold text-blue-600 mb-4">4. Payment Method</h3>
-          <div className="space-y-3">
-            <label
-              className={`flex items-center gap-3 p-4 border-2 rounded-lg cursor-pointer transition ${formData.paymentMethod === 'upi' ? 'border-blue-500 bg-blue-50' : 'border-gray-300'}`}
-            >
-              <input
-                type="radio"
-                name="paymentMethod"
-                value="upi"
-                checked={formData.paymentMethod === 'upi'}
-                onChange={(e) => setFormData({ ...formData, paymentMethod: e.target.value })}
-                className="w-5 h-5"
-              />
-              <div className="flex-1">
-                <div className="font-semibold text-gray-900 flex items-center gap-2">
-                  <Zap className="w-5 h-5 text-blue-600" /> UPI AutoPay{' '}
-                  <span className="bg-green-600 text-white text-xs px-2 py-1 rounded ml-2">Recommended</span>
-                </div>
-                <p className="text-xs text-gray-600 mt-1">Automatic monthly collection via UPI</p>
-              </div>
-            </label>
-          </div>
-        </div>
-
-        <div>
-          <h3 className="text-lg font-bold text-blue-600 mb-4">5. Charge Penalty (Optional)</h3>
-          <div className="grid grid-cols-1 gap-3">
-            <label
-              className={`flex items-center gap-3 p-3 border-2 rounded-lg cursor-pointer transition ${formData.penaltyOption === 'charge-auto' ? 'border-blue-500 bg-blue-50' : 'border-gray-300'}`}
-            >
-              <input
-                type="radio"
-                name="penaltyOption"
-                value="charge-auto"
-                checked={formData.penaltyOption === 'charge-auto'}
-                onChange={(e) => setFormData({ ...formData, penaltyOption: e.target.value })}
-                className="w-5 h-5"
-              />
-              <div>
-                <div className="font-semibold text-gray-900 text-sm">Charge Automatically</div>
-                <p className="text-xs text-gray-600">5% penalty charged automatically on late payments</p>
-              </div>
-            </label>
-          </div>
-        </div>
-
-        {(() => {
-          const due = totalAmount;
-          const charge = Math.round(due * 0.05);
-          const netReturn = due + charge;
-          return (
-            <div className="grid grid-cols-3 gap-4 bg-gray-50 rounded-lg p-4">
-              <div className="text-center">
-                <p className="text-xs text-gray-600">Total Due</p>
-                <p className="text-xl font-bold text-gray-900 mt-2">₹{due}</p>
-              </div>
-              <div className="text-center border-l border-r border-gray-300">
-                <p className="text-xs text-gray-600">Merchant Charge (5%)</p>
-                <p className="text-xl font-bold text-gray-900 mt-2">₹{charge}</p>
-              </div>
-              <div className="text-center">
-                <p className="text-xs text-gray-600">Net Return (Due+5%)</p>
-                <p className="text-xl font-bold text-green-600 mt-2">₹{netReturn}</p>
-              </div>
-            </div>
-          );
-        })()}
 
         <button
+          type="button"
           onClick={saveCustomer}
-          className="w-full bg-blue-600 text-white py-4 rounded-lg font-bold hover:bg-blue-700 flex items-center justify-center gap-2"
+          disabled={!formData.customerName.trim() || !formData.customerPhone.trim()}
+          className="w-full bg-blue-600 text-white py-4 rounded-lg font-bold hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center gap-2"
         >
           <User2 className="w-5 h-5" /> Add Customer
         </button>
@@ -2054,7 +1715,19 @@ export default function MobileUserApp({ currentPath }: { currentPath: string }) 
     const profit = saleCollected - costPrice;
     return (
       <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden pb-20 w-full max-w-full">
-        <div className="bg-gradient-to-br from-slate-900 to-blue-900 pt-3">
+        <div className="bg-gradient-to-br from-slate-900 to-blue-900 pt-2.5">
+          <div className="flex items-center justify-between px-3 text-white">
+            <button
+              type="button"
+              onClick={() => navigateToTab('home')}
+              aria-label="Back to Home"
+              className="rounded-full bg-white/15 hover:bg-white/25 p-1.5 text-white transition flex items-center justify-center shrink-0"
+            >
+              <ArrowLeft className="w-5 h-5" />
+            </button>
+            <span className="text-sm font-bold tracking-wide">Sales</span>
+            <span className="w-8 shrink-0" aria-hidden="true" />
+          </div>
           <div className="text-white p-3">
             <div className="grid grid-cols-3 gap-2 items-center text-center">
               <div className="border-r border-blue-700/60 px-1 min-w-0">
@@ -2199,6 +1872,18 @@ export default function MobileUserApp({ currentPath }: { currentPath: string }) 
       <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden pb-20 w-full max-w-full">
         <div>
           <div className="bg-gradient-to-br from-slate-900 to-blue-900 text-white p-3 sm:p-4 shadow-lg">
+            <div className="flex items-center justify-between mb-2">
+              <button
+                type="button"
+                onClick={() => navigateToTab('home')}
+                aria-label="Back to Home"
+                className="rounded-full bg-white/15 hover:bg-white/25 p-1.5 text-white transition flex items-center justify-center shrink-0"
+              >
+                <ArrowLeft className="w-5 h-5" />
+              </button>
+              <span className="text-sm font-bold tracking-wide">Edit Sale</span>
+              <span className="w-8 shrink-0" aria-hidden="true" />
+            </div>
             <div className="grid grid-cols-3 gap-2 sm:gap-3 items-center">
               <div className="text-center border-r border-blue-700/60 px-1 min-w-0">
                 <p className="text-[11px] xs:text-xs sm:text-sm text-gray-300 mb-1 font-medium truncate uppercase tracking-wider">
@@ -2375,9 +2060,19 @@ export default function MobileUserApp({ currentPath }: { currentPath: string }) 
 
   const renderReports = () => (
     <div className="flex-1 min-h-0 overflow-y-auto pb-20">
-      <div className="bg-gradient-to-b from-slate-900 to-blue-900 text-white px-6 py-6">
-        <h2 className="text-2xl font-bold">Reports & Analytics</h2>
-        <p className="text-sm text-gray-300 mt-1">View your business insights</p>
+      <div className="bg-gradient-to-b from-slate-900 to-blue-900 text-white px-4 py-5 flex items-center gap-3">
+        <button
+          type="button"
+          onClick={() => navigateToTab('home')}
+          aria-label="Back to Home"
+          className="rounded-full bg-white/15 hover:bg-white/25 p-1.5 text-white transition flex items-center justify-center shrink-0"
+        >
+          <ArrowLeft className="w-5 h-5" />
+        </button>
+        <div>
+          <h2 className="text-xl font-bold">Reports & Analytics</h2>
+          <p className="text-xs text-gray-300 mt-0.5">View your business insights</p>
+        </div>
       </div>
 
       <div className="p-6 space-y-6">
@@ -2448,12 +2143,23 @@ export default function MobileUserApp({ currentPath }: { currentPath: string }) 
       });
     return (
       <div className="flex-1 min-h-0 overflow-y-auto pb-20">
-        <div className="bg-gradient-to-b from-slate-900 to-blue-900 text-white px-6 py-6">
-          <div className="text-center">
-            <h2 className="text-2xl font-bold">Upcoming Collections</h2>
-            <p className="text-sm text-gray-300 mt-1">
-              {upcomingCustomers.length} customer{upcomingCustomers.length !== 1 ? 's' : ''} due soon
-            </p>
+        <div className="bg-gradient-to-b from-slate-900 to-blue-900 text-white px-4 py-5">
+          <div className="flex items-center justify-between gap-2">
+            <button
+              type="button"
+              onClick={() => navigateToTab('home')}
+              aria-label="Back to Home"
+              className="rounded-full bg-white/15 hover:bg-white/25 p-1.5 text-white transition flex items-center justify-center shrink-0"
+            >
+              <ArrowLeft className="w-5 h-5" />
+            </button>
+            <div className="text-center flex-1">
+              <h2 className="text-xl font-bold">Upcoming Collections</h2>
+              <p className="text-xs text-gray-300 mt-0.5">
+                {upcomingCustomers.length} customer{upcomingCustomers.length !== 1 ? 's' : ''} due soon
+              </p>
+            </div>
+            <span className="w-8 shrink-0" aria-hidden="true" />
           </div>
           <div className="relative mt-3">
             <input
@@ -2621,13 +2327,22 @@ export default function MobileUserApp({ currentPath }: { currentPath: string }) 
     return (
       <div className="flex-1 min-h-0 flex flex-col overflow-hidden bg-slate-50">
         {/* Header */}
-        <div className="bg-gradient-to-r from-purple-900 via-slate-900 to-indigo-900 text-white px-4 py-3 shadow-md text-center flex flex-col items-center justify-center">
-          <div>
+        <div className="bg-gradient-to-r from-purple-900 via-slate-900 to-indigo-900 text-white px-4 py-3 shadow-md flex items-center justify-between gap-2">
+          <button
+            type="button"
+            onClick={() => navigateToTab('home')}
+            aria-label="Back to Home"
+            className="rounded-full bg-white/15 hover:bg-white/25 p-1.5 text-white transition flex items-center justify-center shrink-0"
+          >
+            <ArrowLeft className="w-5 h-5" />
+          </button>
+          <div className="text-center flex-1">
             <h2 className="text-base font-extrabold flex items-center justify-center gap-2">
               <Wallet className="w-5 h-5 text-purple-400" /> Cash Book
             </h2>
             <p className="text-[10px] text-purple-200">Daily Cash In & Expense Ledger</p>
           </div>
+          <span className="w-8 shrink-0" aria-hidden="true" />
         </div>
 
         <div className="flex-1 min-h-0 overflow-y-auto p-3 space-y-3 pb-24">
@@ -3126,18 +2841,35 @@ export default function MobileUserApp({ currentPath }: { currentPath: string }) 
     return (
       <div className="flex-1 min-h-0 flex flex-col overflow-y-auto bg-slate-50 pb-20">
         {/* Full Page Header */}
-        <div className="bg-gradient-to-r from-slate-900 via-blue-900 to-slate-900 text-white px-5 py-4 shadow-md flex items-center justify-between">
-          <div className="flex-1 text-center">
+        <div className="bg-gradient-to-r from-slate-900 via-blue-900 to-slate-900 text-white px-4 py-4 shadow-md flex items-center justify-between gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              if (isEditingCustomerProfile) {
+                setIsEditingCustomerProfile(false);
+              } else {
+                setShowCustomerDetailsPage(false);
+                setShowDeleteConfirm(false);
+              }
+            }}
+            aria-label="Back"
+            className="rounded-full bg-white/15 hover:bg-white/25 p-1.5 text-white transition flex items-center justify-center shrink-0"
+          >
+            <ArrowLeft className="w-5 h-5" />
+          </button>
+          <div className="flex-1 text-center min-w-0">
             <h2 className="text-lg font-bold">Customer Profile</h2>
-            <p className="text-xs text-blue-200">{c.name}</p>
+            <p className="text-xs text-blue-200 truncate">{c.name}</p>
           </div>
-          {!isEditingCustomerProfile && (
+          {!isEditingCustomerProfile ? (
             <button
               onClick={startEditingProfile}
-              className="bg-white/10 hover:bg-white/20 text-white text-xs font-bold px-3.5 py-1.5 rounded-lg flex items-center gap-1.5 transition cursor-pointer"
+              className="bg-white/10 hover:bg-white/20 text-white text-xs font-bold px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition cursor-pointer shrink-0"
             >
-              <Edit2 className="w-3.5 h-3.5" /> Edit Profile
+              <Edit2 className="w-3.5 h-3.5" /> Edit
             </button>
+          ) : (
+            <span className="w-8 shrink-0" aria-hidden="true" />
           )}
         </div>
 
@@ -3291,39 +3023,57 @@ export default function MobileUserApp({ currentPath }: { currentPath: string }) 
               </div>
 
               <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-200/80">
-                {!showDeleteConfirm ? (
-                  <button
-                    onClick={() => setShowDeleteConfirm(true)}
-                    className="w-full py-3.5 bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition cursor-pointer"
+                <button
+                  type="button"
+                  onClick={() => setShowDeleteConfirm(true)}
+                  className="w-full py-3.5 bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition cursor-pointer"
+                >
+                  <Trash2 className="w-5 h-5 text-red-600" /> Delete Customer
+                </button>
+              </div>
+
+              {showDeleteConfirm && (
+                <div
+                  className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-[1px] animate-fade-in"
+                  onClick={() => setShowDeleteConfirm(false)}
+                >
+                  <div
+                    role="dialog"
+                    aria-modal="true"
+                    aria-labelledby="delete-customer-popup-title"
+                    className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-2xl border border-slate-200 text-center space-y-4"
+                    onClick={(e) => e.stopPropagation()}
                   >
-                    <Trash2 className="w-5 h-5 text-red-600" /> Delete Customer
-                  </button>
-                ) : (
-                  <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-center space-y-3 animate-fade-in">
-                    <p className="text-sm font-bold text-red-800">
-                      Are you sure you want to delete &quot;{c.name}&quot;?
-                    </p>
-                    <p className="text-xs text-red-600">
-                      All transactions and credit records for this customer will be permanently deleted from the
-                      database.
-                    </p>
+                    <div className="w-12 h-12 rounded-full bg-red-100 text-red-600 flex items-center justify-center mx-auto">
+                      <Trash2 className="w-6 h-6" />
+                    </div>
+                    <div className="space-y-1.5">
+                      <h3 id="delete-customer-popup-title" className="text-base font-extrabold text-slate-900">
+                        Delete &quot;{c.name}&quot;?
+                      </h3>
+                      <p className="text-xs text-slate-500 leading-relaxed">
+                        All transactions and credit records for this customer will be permanently deleted from the database.
+                      </p>
+                    </div>
                     <div className="flex gap-3 pt-1">
                       <button
+                        type="button"
+                        onClick={() => setShowDeleteConfirm(false)}
+                        className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 py-3 rounded-xl text-xs font-bold transition cursor-pointer"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
                         onClick={() => deleteCustomer(c.id)}
                         className="flex-1 bg-red-600 hover:bg-red-700 text-white py-3 rounded-xl text-xs font-bold transition cursor-pointer shadow"
                       >
                         Yes, Delete
                       </button>
-                      <button
-                        onClick={() => setShowDeleteConfirm(false)}
-                        className="flex-1 bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 py-3 rounded-xl text-xs font-bold transition cursor-pointer"
-                      >
-                        Cancel
-                      </button>
                     </div>
                   </div>
-                )}
-              </div>
+                </div>
+              )}
             </>
           )}
         </div>
@@ -3409,20 +3159,12 @@ export default function MobileUserApp({ currentPath }: { currentPath: string }) 
                 <span className="text-gray-600">Phone</span>
                 <span className="font-semibold text-gray-900">{savedData.phone}</span>
               </div>
-              <div className="flex justify-between">
-                <span className="text-gray-600">Items</span>
-                <span className="font-semibold text-gray-900">
-                  {savedData.items.map((i: Item) => i.name).join(', ')}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-600">Total Amount</span>
-                <span className="font-semibold text-gray-900">₹{savedData.totalAmount}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-600">Collection</span>
-                <span className="font-semibold text-gray-900 capitalize">{savedData.collectionType}</span>
-              </div>
+              {savedData.address && (
+                <div className="flex justify-between gap-4">
+                  <span className="text-gray-600">Address</span>
+                  <span className="font-semibold text-gray-900 text-right">{savedData.address}</span>
+                </div>
+              )}
             </div>
             <button
               onClick={closeSuccess}
@@ -3434,54 +3176,6 @@ export default function MobileUserApp({ currentPath }: { currentPath: string }) 
         </div>
       )}
 
-      {/* Global Hidden Reminder Card for Image Capture */}
-      {(() => {
-        const targetCust = activeReminderCustomer || selectedCustomer;
-        if (!targetCust) return null;
-        const custBal = 'balance' in targetCust ? (targetCust as { balance?: number }).balance : undefined;
-        const targetBal = Math.abs(
-          custBal ?? customerBalances[targetCust.id] ?? calculateBalance(targetCust, customerTransactions),
-        );
-        return (
-          <div
-            ref={reminderCardRef}
-            className="fixed"
-            style={{ left: '-9999px', top: 0, width: '400px', zIndex: -100 }}
-          >
-            <div className="bg-gradient-to-b from-slate-900 to-blue-900 text-white p-6 text-center">
-              <p className="text-lg font-bold">KHERWAL BAZAAR</p>
-              <p className="text-[10px] text-blue-200">UDHAR RECOVERY SYSTEM</p>
-            </div>
-            <div className="bg-white p-6 text-center space-y-3">
-              <p className="text-xs text-gray-500 uppercase tracking-wider font-semibold">🔔 Payment Reminder</p>
-              <p className="text-xl font-bold text-gray-800">{targetCust.name}</p>
-              <div className="bg-red-50 rounded-lg py-3 px-4">
-                <p className="text-[10px] text-gray-500">Pending Amount</p>
-                <p className="text-3xl font-extrabold text-red-600">₹{targetBal}</p>
-              </div>
-              <div className="flex justify-center gap-6 text-sm text-gray-600">
-                <div>
-                  <p className="text-[10px] text-gray-400">Collection</p>
-                  <p className="font-semibold capitalize">{targetCust.collectionType || 'Installments'}</p>
-                </div>
-                <div>
-                  <p className="text-[10px] text-gray-400">Phone</p>
-                  <p className="font-semibold">{targetCust.phone}</p>
-                </div>
-              </div>
-              {qrDataUrl && (
-                <div className="flex justify-center mt-3">
-                  <Image src={qrDataUrl} alt="UPI QR" width={128} height={128} unoptimized />
-                </div>
-              )}
-              <div className="border-t border-gray-200 pt-3 mt-3">
-                <p className="text-xs text-gray-500">Scan to pay via UPI</p>
-                <p className="text-[10px] text-gray-400 mt-2">Thank you for your business!</p>
-              </div>
-            </div>
-          </div>
-        );
-      })()}
     </div>
   );
 }

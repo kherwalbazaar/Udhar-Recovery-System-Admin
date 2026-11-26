@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Image from "next/image";
 import { ref, push, update } from "firebase/database";
-import { onValueWithCache, CACHE_KEYS, triggerActionRefresh } from "@/lib/cache";import {
+import { onValueWithCache, CACHE_KEYS, triggerActionRefresh } from "@/lib/cache";
+import {
   Users,
   ArrowDown,
   ArrowUp,
@@ -12,7 +14,7 @@ import { onValueWithCache, CACHE_KEYS, triggerActionRefresh } from "@/lib/cache"
   Filter,
   ChevronRight,
   Calendar,
-  Download,
+  FileText,
   Printer,
   Plus,
   Trash2,
@@ -32,6 +34,13 @@ import {
   type KhataMetrics,
   type RawMap,
 } from "@/lib/khata";
+import {
+  buildWhatsAppBillText,
+  createCustomerLedgerPdf,
+  formatWhatsAppPhone,
+  printCustomerLedgerBill,
+  type LedgerBillEntry,
+} from "@/lib/customer-ledger-pdf";
 
 const AVATAR_COLORS = [
   "bg-blue-600",
@@ -386,6 +395,56 @@ export default function KhataPage() {
     }
   };
 
+  const selectedLedgerEntries = (customer: KhataCustomer): LedgerBillEntry[] =>
+    customer.transactions.map((t) => ({
+      createdAt: t.createdAt,
+      date: t.date,
+      name: t.itemName,
+      amount: t.amount,
+      type: t.type,
+    }));
+
+  const handleCustomerPrint = () => {
+    if (!selected) return;
+    const opened = printCustomerLedgerBill(selected, selectedLedgerEntries(selected));
+    if (!opened) {
+      showToast("warning", "Please allow pop-ups to print the customer bill.");
+    }
+  };
+
+  const handleCustomerReport = async () => {
+    if (!selected) return;
+    const entries = selectedLedgerEntries(selected);
+    const { doc, fileName } = await createCustomerLedgerPdf(selected, entries);
+    doc.save(fileName);
+    const printed = printCustomerLedgerBill(selected, entries);
+    if (!printed) {
+      showToast("success", `Downloaded ${fileName}. Allow pop-ups to print.`);
+    }
+  };
+
+  const handleCustomerWhatsApp = async () => {
+    if (!selected) return;
+    const fullPhone = formatWhatsAppPhone(selected.phone);
+    if (!fullPhone) {
+      showToast("warning", "Customer phone number is missing.");
+      return;
+    }
+    const waWin = window.open("", "_blank");
+    const entries = selectedLedgerEntries(selected);
+    const { doc, fileName } = await createCustomerLedgerPdf(selected, entries);
+    doc.save(fileName);
+
+    const shareText = buildWhatsAppBillText(selected, entries);
+    const waUrl = `https://wa.me/${fullPhone}?text=${encodeURIComponent(shareText)}`;
+    if (waWin && !waWin.closed) {
+      waWin.location.href = waUrl;
+    } else {
+      window.open(waUrl, "_blank");
+    }
+    showToast("success", `PDF bill (${fileName}) downloaded & WhatsApp opened.`);
+  };
+
   return (
     <AppShell title="Khata (Customers)" active="Khata (Customers)">
       {/* PAGE TITLE */}
@@ -668,14 +727,24 @@ export default function KhataPage() {
                     <div className="flex items-center space-x-2">
                       <button
                         type="button"
-                        className="border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-600 flex items-center space-x-1 hover:bg-slate-50"
+                        onClick={() => void handleCustomerReport()}
+                        className="border border-blue-200 bg-blue-50 text-blue-700 rounded-lg px-2.5 py-1.5 flex items-center space-x-1 font-semibold hover:bg-blue-100 transition-colors"
                       >
-                        <Download className="w-3.5 h-3.5" />
-                        <span>Export</span>
+                        <FileText className="w-3.5 h-3.5" />
+                        <span>Report</span>
                       </button>
                       <button
                         type="button"
-                        className="border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-600 flex items-center space-x-1 hover:bg-slate-50"
+                        onClick={() => void handleCustomerWhatsApp()}
+                        className="border border-emerald-200 bg-emerald-50 text-emerald-700 rounded-lg px-2.5 py-1.5 flex items-center space-x-1 font-semibold hover:bg-emerald-100 transition-colors"
+                      >
+                        <Image src="/whatsapp.png" alt="WhatsApp" width={14} height={14} />
+                        <span>WhatsApp</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleCustomerPrint}
+                        className="border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-600 flex items-center space-x-1 hover:bg-slate-50 transition-colors"
                       >
                         <Printer className="w-3.5 h-3.5" />
                         <span>Print</span>

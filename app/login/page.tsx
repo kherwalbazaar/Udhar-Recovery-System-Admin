@@ -9,10 +9,8 @@ import {
   Bell,
   CalendarDays,
   CheckCircle2,
-  ChevronDown,
   Eye,
   EyeOff,
-  Globe,
   Heart,
   Lock,
   MapPin,
@@ -29,14 +27,6 @@ import {
   safeNextPath,
   signIn,
 } from "@/lib/auth";
-
-const LANGUAGE_KEY = "udhar_login_language_v1";
-const LANGUAGES = [
-  "English",
-  "ଓଡ଼ିଆ (Odia)",
-  "ᱥᱟᱱᱛᱟᱲᱤ (Santali)",
-  "हिंदी (Hindi)",
-];
 
 const features = [
   { label: "Easy Sales Management", Icon: ShoppingCart, bg: "bg-[#0284c7]" },
@@ -106,22 +96,10 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
-  const [language, setLanguage] = useState(LANGUAGES[0]);
-  const [languageOpen, setLanguageOpen] = useState(false);
   const [ready, setReady] = useState(false);
 
-  // Restore the saved language, prefill the remembered credentials, and let an
-  // already signed-in device skip the form entirely.
+  // Prefill remembered credentials and let an already signed-in device skip the form.
   useEffect(() => {
-    try {
-      const storedLanguage = window.localStorage.getItem(LANGUAGE_KEY);
-      if (storedLanguage && LANGUAGES.includes(storedLanguage)) {
-        setLanguage(storedLanguage);
-      }
-    } catch {
-      /* storage unavailable */
-    }
-
     const remembered = readRememberedCredentials();
     if (remembered) {
       setIdentifier(remembered.identifier);
@@ -137,23 +115,6 @@ export default function LoginPage() {
 
     setReady(true);
   }, [router]);
-
-  useEffect(() => {
-    if (!languageOpen) return;
-    const onDocumentClick = () => setLanguageOpen(false);
-    document.addEventListener("click", onDocumentClick);
-    return () => document.removeEventListener("click", onDocumentClick);
-  }, [languageOpen]);
-
-  const chooseLanguage = (value: string) => {
-    setLanguage(value);
-    setLanguageOpen(false);
-    try {
-      window.localStorage.setItem(LANGUAGE_KEY, value);
-    } catch {
-      /* storage unavailable */
-    }
-  };
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -177,8 +138,239 @@ export default function LoginPage() {
     return <AuthSplash label="Checking saved login..." />;
   }
 
+  const renderLoginForm = (mobile = false) => (
+    <form className={mobile ? "mt-2.5 grid gap-2" : "login-form"} onSubmit={handleSubmit}>
+      <div
+        className={`relative flex items-center border border-slate-200 bg-slate-50/80 transition focus-within:border-[#0284c7] focus-within:bg-white focus-within:ring-2 focus-within:ring-sky-100 ${
+          mobile ? "rounded-xl px-3 py-2" : "login-field rounded-xl"
+        }`}
+      >
+        <Users className={mobile ? "h-4 w-4 shrink-0 text-[#0f172a]" : "h-5 w-5 shrink-0 text-[#0f172a]"} aria-hidden="true" />
+        <input
+          type="text"
+          name="username"
+          autoComplete="username"
+          placeholder="Username or Mobile Number"
+          aria-label="Username or mobile number"
+          required
+          value={identifier}
+          onChange={(event) => {
+            setIdentifier(event.target.value);
+            if (error) setError(null);
+          }}
+          className={`w-full bg-transparent font-medium text-slate-800 placeholder-slate-400 focus:outline-none ${
+            mobile ? "ml-2.5 text-xs" : "ml-3 text-sm"
+          }`}
+        />
+      </div>
+
+      <div
+        className={`relative flex items-center border border-slate-200 bg-slate-50/80 transition focus-within:border-[#0284c7] focus-within:bg-white focus-within:ring-2 focus-within:ring-sky-100 ${
+          mobile ? "rounded-xl px-3 py-2" : "login-field rounded-xl"
+        }`}
+      >
+        <Lock className={mobile ? "h-4 w-4 shrink-0 text-[#0f172a]" : "h-5 w-5 shrink-0 text-[#0f172a]"} aria-hidden="true" />
+        <input
+          type={showPassword ? "text" : "password"}
+          name="password"
+          autoComplete="current-password"
+          placeholder="Password"
+          aria-label="Password"
+          required
+          value={password}
+          onChange={(event) => {
+            setPassword(event.target.value);
+            if (error) setError(null);
+          }}
+          className={`w-full bg-transparent font-medium text-slate-800 placeholder-slate-400 focus:outline-none ${
+            mobile ? "ml-2.5 text-xs" : "ml-3 text-sm"
+          }`}
+        />
+        <button
+          type="button"
+          aria-label={showPassword ? "Hide password" : "Show password"}
+          aria-pressed={showPassword}
+          onClick={() => setShowPassword((visible) => !visible)}
+          className="ml-2 text-slate-500 hover:text-slate-800 focus:outline-none"
+        >
+          {showPassword ? (
+            <Eye className={mobile ? "h-4 w-4" : "h-5 w-5"} aria-hidden="true" />
+          ) : (
+            <EyeOff className={mobile ? "h-4 w-4" : "h-5 w-5"} aria-hidden="true" />
+          )}
+        </button>
+      </div>
+
+      {error && (
+        <div
+          role="alert"
+          className={`flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 font-semibold text-rose-700 ${
+            mobile ? "px-2.5 py-1.5 text-[10px]" : "px-3.5 py-2.5 text-xs"
+          }`}
+        >
+          <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+          <span>{error}</span>
+        </div>
+      )}
+
+      <div className={`${mobile ? "text-[11px]" : "login-row"} flex items-center justify-between pt-0.5`}>
+        <label className="flex cursor-pointer items-center gap-1.5 font-semibold text-[#0b2559]">
+          <input
+            type="checkbox"
+            checked={remember}
+            onChange={(event) => setRemember(event.target.checked)}
+            className={`${mobile ? "h-3.5 w-3.5" : "h-4 w-4"} rounded border-slate-300 text-[#0284c7] focus:ring-[#0284c7]`}
+          />
+          <span>Remember Me</span>
+        </label>
+        <button
+          type="button"
+          onClick={() => setShowHelp((open) => !open)}
+          aria-expanded={showHelp}
+          className="font-bold text-[#026aa7] hover:underline"
+        >
+          Forgot Password?
+        </button>
+      </div>
+
+      {showHelp && (
+        <div className={`rounded-xl border border-sky-200 bg-sky-50 font-medium leading-snug text-[#0b2559] ${
+          mobile ? "px-2.5 py-2 text-[10px]" : "px-3.5 py-3 text-xs leading-relaxed"
+        }`}>
+          <p className="font-bold">Password help</p>
+          <p className="mt-0.5">
+            Sign in with{" "}
+            <span className="font-bold">{ADMIN_EMAIL}</span>. Ask the shop owner
+            if the password was changed.
+          </p>
+        </div>
+      )}
+
+      <button
+        type="submit"
+        disabled={busy}
+        className={`login-btn-shadow flex w-full items-center justify-center gap-2 bg-gradient-to-r from-[#10b981] via-[#0ea5e9] to-[#026aa7] font-bold text-white transition hover:brightness-105 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-80 ${
+          mobile ? "mt-0.5 rounded-xl py-2.5 text-sm" : "login-submit rounded-xl"
+        }`}
+      >
+        {busy ? (
+          <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+        ) : (
+          <CheckCircle2 className={mobile ? "h-4 w-4" : "h-5 w-5"} aria-hidden="true" />
+        )}
+        <span>{busy ? "Signing in..." : "Login"}</span>
+      </button>
+    </form>
+  );
+
   return (
-    <div className="login-page relative flex min-h-0 w-full flex-1 select-none flex-col overflow-x-hidden bg-gradient-to-br from-[#dff3ff] via-[#eef8ff] to-[#cbe8fb] text-[#0b2559]">
+    <>
+      {/* MOBILE LOGIN UI (< 768px) — compact full-fit viewport with zero scroll */}
+      <div className="flex h-full min-h-0 w-full flex-1 select-none flex-col justify-between overflow-hidden bg-[#eff6ff] text-[#0b2559] md:hidden">
+        {/* Top Hero Banner */}
+        <div className="relative shrink-0 overflow-hidden bg-gradient-to-br from-[#071c47] via-[#0b3578] to-[#0369a1] px-4 pb-7 pt-3.5 text-white">
+          <div className="pointer-events-none absolute -right-10 -top-10 h-32 w-32 rounded-full bg-sky-400/20 blur-2xl" />
+          <div className="pointer-events-none absolute -left-8 bottom-0 h-24 w-24 rounded-full bg-emerald-400/15 blur-2xl" />
+
+          <div className="relative z-10 flex flex-col items-center text-center">
+            <div className="h-14 w-14 overflow-hidden rounded-2xl bg-white/95 p-0.5 shadow-lg shadow-slate-950/30 ring-2 ring-white/25">
+              <Image
+                src="/icon.png"
+                alt="Udhar Recovery System"
+                width={512}
+                height={512}
+                priority
+                className="h-full w-full rounded-[13px] object-cover"
+              />
+            </div>
+            <h1 className="mt-1.5 text-base font-extrabold tracking-tight text-white">
+              KHERWAL BAZAAR
+            </h1>
+            <p className="text-[9px] font-semibold uppercase tracking-[0.18em] text-amber-300">
+              Udhar Recovery System
+            </p>
+            <span className="mt-2 inline-flex items-center gap-1 rounded-full border border-emerald-400/30 bg-emerald-500/20 px-2.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-emerald-200">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+              Shop POS &amp; Khata
+            </span>
+          </div>
+        </div>
+
+        {/* Floating Login Card */}
+        <div className="relative z-10 -mt-4 flex min-h-0 flex-1 flex-col justify-center px-3 py-1">
+          <div className="login-card-shadow mx-auto w-full max-w-md rounded-2xl border border-white bg-white p-3.5">
+            <div className="text-center">
+              <h2 className="text-base font-extrabold tracking-tight text-[#0b2559]">
+                Welcome Back!
+              </h2>
+              <p className="text-[11px] font-medium text-slate-500">
+                Sign in to manage sales, khata &amp; collections
+              </p>
+            </div>
+
+            {renderLoginForm(true)}
+
+            {/* Compact Features Strip */}
+            <div className="mt-2.5 grid grid-cols-2 gap-1.5 border-t border-slate-100 pt-2.5">
+              {features.slice(0, 4).map(({ label, Icon, bg }) => (
+                <div
+                  key={label}
+                  className="flex items-center gap-1.5 rounded-lg bg-slate-50 px-2 py-1.5"
+                >
+                  <span
+                    className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-white ${bg}`}
+                  >
+                    <Icon className="h-3 w-3" aria-hidden="true" />
+                  </span>
+                  <span className="truncate text-[9px] font-bold text-slate-700">
+                    {label}
+                  </span>
+                </div>
+              ))}
+            </div>
+
+            {/* Trust Badge */}
+            <div className="mt-2 flex items-center justify-center gap-2 rounded-xl border border-emerald-100 bg-emerald-50/70 px-3 py-1.5">
+              <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#16a34a]/15 text-[#16a34a]">
+                <ShieldCheck className="h-4 w-4" aria-hidden="true" />
+              </div>
+              <div className="text-left leading-tight">
+                <p className="text-[11px] font-extrabold text-[#15803d]">
+                  Secure &amp; Trusted
+                </p>
+                <p className="text-[9px] font-medium text-slate-600">
+                  Real-time synced &amp; protected shop data
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Mobile Footer */}
+        <footer className="w-full shrink-0 bg-[#044a75] px-3 py-2 text-white">
+          <div className="mx-auto flex max-w-md flex-col items-center gap-0.5 text-center font-medium">
+            <div className="flex items-center justify-center gap-1 text-[10px] text-sky-100">
+              <MapPin className="h-3 w-3 shrink-0 text-amber-300" aria-hidden="true" />
+              <span className="truncate">{footerShop}</span>
+            </div>
+            <div className="flex items-center justify-center gap-2 text-[9px] text-sky-200/90">
+              <span className="inline-flex items-center gap-1">
+                <CalendarDays className="h-2.5 w-2.5 shrink-0" aria-hidden="true" />
+                Version 1.0
+              </span>
+              <span>•</span>
+              <span className="inline-flex items-center gap-1">
+                Made with{" "}
+                <Heart className="h-2.5 w-2.5 text-[#ec4899]" fill="currentColor" aria-hidden="true" />{" "}
+                for Your Business
+              </span>
+            </div>
+          </div>
+        </footer>
+      </div>
+
+      {/* DESKTOP LOGIN UI (>= 768px) */}
+      <div className="login-page relative hidden min-h-0 w-full flex-1 select-none flex-col overflow-x-hidden bg-gradient-to-br from-[#dff3ff] via-[#eef8ff] to-[#cbe8fb] text-[#0b2559] md:flex">
       {/* Background: soft shelf silhouette, sweeping waves and diagonal light */}
       <div className="pointer-events-none fixed inset-0 z-0 overflow-hidden" aria-hidden="true">
         <div className="absolute -left-24 -top-24 h-[520px] w-[520px] rounded-full bg-white/80 blur-3xl" />
@@ -311,49 +503,7 @@ export default function LoginPage() {
         {/* RIGHT: login card */}
         <div className="flex w-full items-center justify-center lg:w-[44%]">
           <div className="login-card login-card-shadow relative w-full max-w-[460px] rounded-[28px] border border-white bg-white/95 backdrop-blur-md">
-            <div className="flex justify-end">
-              <div className="relative">
-                <button
-                  type="button"
-                  aria-expanded={languageOpen}
-                  aria-controls="login-language-menu"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    setLanguageOpen((open) => !open);
-                  }}
-                  className="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50/90 px-3 py-1.5 text-xs font-semibold text-[#0b2559] shadow-sm transition hover:bg-slate-100"
-                >
-                  <Globe className="h-4 w-4 text-[#0b3578]" aria-hidden="true" />
-                  <span>{language}</span>
-                  <ChevronDown className="h-3.5 w-3.5 text-slate-500" aria-hidden="true" />
-                </button>
-
-                {languageOpen && (
-                  <div
-                    id="login-language-menu"
-                    className="absolute right-0 z-30 mt-1.5 w-44 rounded-xl border border-slate-200 bg-white p-1 text-xs font-semibold text-slate-700 shadow-lg"
-                  >
-                    {LANGUAGES.map((option) => (
-                      <button
-                        key={option}
-                        type="button"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          chooseLanguage(option);
-                        }}
-                        className={`block w-full rounded-lg px-3 py-1.5 text-left transition hover:bg-sky-50 hover:text-[#0284c7] ${
-                          option === language ? "bg-sky-50 text-[#0284c7]" : ""
-                        }`}
-                      >
-                        {option}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-
-            <div className="mt-1 flex flex-col items-center text-center">
+            <div className="flex flex-col items-center text-center">
               <div className="login-logo flex items-center justify-center overflow-hidden rounded-[26%] shadow-lg shadow-sky-900/20 ring-4 ring-[#e0f2fe]">
                 <Image
                   src="/icon.png"
@@ -373,111 +523,7 @@ export default function LoginPage() {
               </p>
             </div>
 
-            <form className="login-form" onSubmit={handleSubmit}>
-              <div className="login-field relative flex items-center rounded-xl border border-slate-200 bg-slate-50/70 transition focus-within:border-[#0284c7] focus-within:bg-white focus-within:ring-2 focus-within:ring-sky-100">
-                <Users className="h-5 w-5 shrink-0 text-[#0f172a]" aria-hidden="true" />
-                <input
-                  type="text"
-                  name="username"
-                  autoComplete="username"
-                  placeholder="Username or Mobile Number"
-                  aria-label="Username or mobile number"
-                  required
-                  value={identifier}
-                  onChange={(event) => {
-                    setIdentifier(event.target.value);
-                    if (error) setError(null);
-                  }}
-                  className="ml-3 w-full bg-transparent text-sm font-medium text-slate-800 placeholder-slate-400 focus:outline-none"
-                />
-              </div>
-
-              <div className="login-field relative flex items-center rounded-xl border border-slate-200 bg-slate-50/70 transition focus-within:border-[#0284c7] focus-within:bg-white focus-within:ring-2 focus-within:ring-sky-100">
-                <Lock className="h-5 w-5 shrink-0 text-[#0f172a]" aria-hidden="true" />
-                <input
-                  type={showPassword ? "text" : "password"}
-                  name="password"
-                  autoComplete="current-password"
-                  placeholder="Password"
-                  aria-label="Password"
-                  required
-                  value={password}
-                  onChange={(event) => {
-                    setPassword(event.target.value);
-                    if (error) setError(null);
-                  }}
-                  className="ml-3 w-full bg-transparent text-sm font-medium text-slate-800 placeholder-slate-400 focus:outline-none"
-                />
-                <button
-                  type="button"
-                  aria-label={showPassword ? "Hide password" : "Show password"}
-                  aria-pressed={showPassword}
-                  onClick={() => setShowPassword((visible) => !visible)}
-                  className="ml-2 text-slate-500 hover:text-slate-800 focus:outline-none"
-                >
-                  {showPassword ? (
-                    <Eye className="h-5 w-5" aria-hidden="true" />
-                  ) : (
-                    <EyeOff className="h-5 w-5" aria-hidden="true" />
-                  )}
-                </button>
-              </div>
-
-              {error && (
-                <div
-                  role="alert"
-                  className="flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3.5 py-2.5 text-xs font-semibold text-rose-700"
-                >
-                  <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-                  <span>{error}</span>
-                </div>
-              )}
-
-              <div className="login-row flex items-center justify-between pt-0.5">
-                <label className="flex cursor-pointer items-center gap-2 font-semibold text-[#0b2559]">
-                  <input
-                    type="checkbox"
-                    checked={remember}
-                    onChange={(event) => setRemember(event.target.checked)}
-                    className="h-4 w-4 rounded border-slate-300 text-[#0284c7] focus:ring-[#0284c7]"
-                  />
-                  <span>Remember Me</span>
-                </label>
-                <button
-                  type="button"
-                  onClick={() => setShowHelp((open) => !open)}
-                  aria-expanded={showHelp}
-                  className="font-bold text-[#026aa7] hover:underline"
-                >
-                  Forgot Password?
-                </button>
-              </div>
-
-              {showHelp && (
-                <div className="rounded-xl border border-sky-200 bg-sky-50 px-3.5 py-3 text-xs font-medium leading-relaxed text-[#0b2559]">
-                  <p className="font-bold">Password help</p>
-                  <p className="mt-1">
-                    Sign in with the shop account{" "}
-                    <span className="font-bold">{ADMIN_EMAIL}</span>. If the
-                    password was changed, ask the shop owner for the current one
-                    before trying again.
-                  </p>
-                </div>
-              )}
-
-              <button
-                type="submit"
-                disabled={busy}
-                className="login-submit login-btn-shadow flex w-full items-center justify-center gap-2.5 rounded-xl bg-gradient-to-r from-[#10b981] via-[#0ea5e9] to-[#026aa7] font-bold text-white transition hover:brightness-105 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-80"
-              >
-                {busy ? (
-                  <span className="h-5 w-5 animate-spin rounded-full border-2 border-white/40 border-t-white" />
-                ) : (
-                  <CheckCircle2 className="h-5 w-5" aria-hidden="true" />
-                )}
-                <span>{busy ? "Signing in..." : "Login"}</span>
-              </button>
-            </form>
+            {renderLoginForm(false)}
 
             <div className="login-divider relative flex items-center justify-center">
               <div className="h-[1px] w-full bg-slate-200"></div>
@@ -500,7 +546,7 @@ export default function LoginPage() {
         </div>
       </main>
 
-      <footer className="login-footer relative z-10 w-full bg-[#044a75] text-white shadow-inner">
+      <footer className="login-footer relative z-10 w-full shrink-0 bg-[#044a75] text-white shadow-inner">
         <div className="mx-auto flex max-w-[1360px] flex-col items-center justify-between gap-2 text-xs font-medium sm:flex-row sm:text-[13px]">
           <div className="flex items-center gap-2 text-center sm:text-left">
             <MapPin className="h-4 w-4 shrink-0" aria-hidden="true" />
@@ -523,6 +569,7 @@ export default function LoginPage() {
           </div>
         </div>
       </footer>
-    </div>
+      </div>
+    </>
   );
 }
